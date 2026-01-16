@@ -1,0 +1,11 @@
+# UI Design Capability Configuration
+
+[capability]
+id = "ui-design"
+name = "UI Design"
+version = "0.1.0"
+description = "Provides skills to design UI components"
+
+[capability.metadata]
+author = "OmniDev Team"
+repository = "https://github.com/omnidev/omnidev"

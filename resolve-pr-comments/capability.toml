@@ -1,0 +1,11 @@
+# Resolve PR Comments Capability Configuration
+
+[capability]
+id = "resolve-pr-comments"
+name = "Resolve PR Comments"
+version = "0.1.0"
+description = "Provides a skill to resolve PR comments"
+
+[capability.metadata]
+author = "OmniDev Team"
+repository = "https://github.com/omnidev/omnidev"

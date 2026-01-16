@@ -1,0 +1,14 @@
+[capability]
+id = "ralph"
+name = "Ralph Orchestrator"
+version = "1.0.0"
+description = "AI agent orchestrator for PRD-driven development"
+
+[capability.requires]
+env = []
+
+[capability.sync]
+on_sync = "sync"
+
+[capability.cli]
+commands = ["ralph"]

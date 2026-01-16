@@ -1,0 +1,15 @@
+pre-commit:
+  parallel: false
+  commands:
+    typecheck:
+      glob: "*.{ts,tsx}"
+      run: bun run typecheck
+    lint:
+      glob: "*.{ts,tsx,js,jsx,json}"
+      run: bun run lint:check
+    format:
+      glob: "*.{ts,tsx,js,jsx,json,md}"
+      run: bun run format:check
+    test:
+      glob: "*.{ts,tsx}"
+      run: bun test --bail

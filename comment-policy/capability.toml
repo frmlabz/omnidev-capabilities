@@ -1,0 +1,11 @@
+# Comment Policy Capability Configuration
+
+[capability]
+id = "comment-policy"
+name = "Comment Policy"
+version = "0.1.0"
+description = "Provides comment policy rule"
+
+[capability.metadata]
+author = "OmniDev Team"
+repository = "https://github.com/omnidev/omnidev"

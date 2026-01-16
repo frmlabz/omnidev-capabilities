@@ -1,0 +1,10 @@
+[capability]
+id = "context7"
+name = "Context7 Documentation"
+version = "1.0.0"
+description = "Query up-to-date library documentation via Context7 MCP"
+
+[mcp]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+transport = "stdio"

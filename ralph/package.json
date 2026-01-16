@@ -1,0 +1,9 @@
+{
+	"name": "@omnidev-ai/capability-ralph",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "index.ts",
+	"dependencies": {
+		"@omnidev-ai/core": "latest"
+	}
+}

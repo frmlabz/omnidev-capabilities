@@ -1,0 +1,20 @@
+# Tasks Capability Configuration
+
+[capability]
+id = "tasks"
+name = "Task Management"
+version = "1.0.0"
+description = "Task tracking with comments and priorities"
+
+[capability.requires]
+env = []
+
+[capability.sync]
+on_sync = "sync"
+
+[capability.cli]
+commands = ["task"]
+
+[capability.metadata]
+author = "OmniDev Team"
+repository = "https://github.com/omnidev/omnidev"

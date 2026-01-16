@@ -1,0 +1,24 @@
+{
+	"name": "omnidev-capabilities",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Community capabilities for OmniDev",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"lint:check": "biome lint .",
+		"lint": "biome lint --write .",
+		"format": "biome format --write .",
+		"format:check": "biome format .",
+		"check": "bun run typecheck && bun run lint:check && bun run format:check"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.11",
+		"@types/bun": "^1.1.17",
+		"typescript": "^5.7.2",
+		"lefthook": "^2.0.13"
+	},
+	"dependencies": {
+		"@omnidev-ai/core": "latest"
+	}
+}

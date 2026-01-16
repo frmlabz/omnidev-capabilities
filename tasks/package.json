@@ -1,0 +1,15 @@
+{
+	"name": "@omnidev-ai/capability-tasks",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "./index.ts",
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@omnidev-ai/core": "latest"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}
