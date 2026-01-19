@@ -1,0 +1,13 @@
+A design engineer for your coding agent. Reviews for accessibility issues, visual inconsistencies, and UI polish—then offers to fix them. Works with Claude Code, Cursor, OpenCode, Codex, and Antigravity.
+
+# Rams Design Review Capability Configuration
+
+[capability]
+id = "rams-design-review"
+name = "Rams Design Review"
+version = "0.1.0"
+description = "Provides a command to review code for accessibility and visual design issues"
+
+[capability.metadata]
+author = "OmniDev Team"
+repository = "https://github.com/omnidev/omnidev"
