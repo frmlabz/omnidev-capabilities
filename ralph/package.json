@@ -5,7 +5,7 @@
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"scripts": {
-		"build": "esbuild index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@stricli/core",
+		"build": "esbuild index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@stricli/core --external:@omnidev-ai/core",
 		"clean": "rm -rf dist"
 	},
 	"dependencies": {
