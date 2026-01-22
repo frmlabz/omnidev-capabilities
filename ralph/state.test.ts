@@ -2,9 +2,11 @@
  * Tests for Ralph state management
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import assert from "node:assert";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	appendProgress,
 	archivePRD,
@@ -18,8 +20,8 @@ import {
 	updateLastRun,
 	updatePRD,
 	updateStoryStatus,
-} from "./state.js";
-import type { PRD } from "./types.js";
+} from "./state.ts";
+import type { PRD } from "./types.ts";
 
 describe("Ralph State Management", () => {
 	let testDir: string;
@@ -39,12 +41,12 @@ describe("Ralph State Management", () => {
 			...(options.lastRun && { lastRun: options.lastRun }),
 		};
 
-		await Bun.write(join(prdDir, "prd.json"), JSON.stringify(prd, null, 2));
-		await Bun.write(
+		await writeFile(join(prdDir, "prd.json"), JSON.stringify(prd, null, 2));
+		await writeFile(
 			join(prdDir, "progress.txt"),
 			"## Codebase Patterns\n\n---\n\n## Progress Log\n\n",
 		);
-		await Bun.write(join(prdDir, "spec.md"), "# Test Spec\n\nTest content");
+		await writeFile(join(prdDir, "spec.md"), "# Test Spec\n\nTest content");
 
 		return prd;
 	}
@@ -70,22 +72,22 @@ describe("Ralph State Management", () => {
 	});
 
 	describe("listPRDs", () => {
-		test("returns empty array when no PRDs exist", async () => {
+		it("returns empty array when no PRDs exist", async () => {
 			const prds = await listPRDs();
-			expect(prds).toEqual([]);
+			assert.deepStrictEqual(prds, []);
 		});
 
-		test("lists active PRDs", async () => {
+		it("lists active PRDs", async () => {
 			await createTestPRD("test-prd-1");
 			await createTestPRD("test-prd-2");
 
 			const prds = await listPRDs();
-			expect(prds).toContain("test-prd-1");
-			expect(prds).toContain("test-prd-2");
-			expect(prds.length).toBe(2);
+			assert.ok(prds.includes("test-prd-1"));
+			assert.ok(prds.includes("test-prd-2"));
+			assert.strictEqual(prds.length, 2);
 		});
 
-		test("includes completed PRDs when requested", async () => {
+		it("includes completed PRDs when requested", async () => {
 			await createTestPRD("active-prd");
 
 			const completedPath = ".omni/state/ralph/completed-prds/completed-prd";
@@ -101,62 +103,62 @@ describe("Ralph State Management", () => {
 			);
 
 			const prds = await listPRDs(true);
-			expect(prds).toContain("active-prd");
-			expect(prds).toContain("completed-prd (completed)");
+			assert.ok(prds.includes("active-prd"));
+			assert.ok(prds.includes("completed-prd (completed)"));
 		});
 	});
 
 	describe("getPRD", () => {
-		test("retrieves an existing PRD", async () => {
+		it("retrieves an existing PRD", async () => {
 			await createTestPRD("test-prd", {
 				description: "Test PRD",
 			});
 
 			const retrieved = await getPRD("test-prd");
-			expect(retrieved.name).toBe("test-prd");
-			expect(retrieved.description).toBe("Test PRD");
+			assert.strictEqual(retrieved.name, "test-prd");
+			assert.strictEqual(retrieved.description, "Test PRD");
 		});
 
-		test("throws error for non-existent PRD", async () => {
-			await expect(getPRD("non-existent")).rejects.toThrow("PRD not found: non-existent");
+		it("throws error for non-existent PRD", async () => {
+			await assert.rejects(getPRD("non-existent"), /PRD not found: non-existent/);
 		});
 
-		test("throws error for invalid PRD structure", async () => {
+		it("throws error for invalid PRD structure", async () => {
 			const prdPath = ".omni/state/ralph/prds/invalid-prd";
 			mkdirSync(prdPath, { recursive: true });
 			writeFileSync(join(prdPath, "prd.json"), JSON.stringify({ foo: "bar" }));
 
-			await expect(getPRD("invalid-prd")).rejects.toThrow("Invalid PRD structure");
+			await assert.rejects(getPRD("invalid-prd"), /Invalid PRD structure/);
 		});
 	});
 
 	describe("updatePRD", () => {
-		test("updates PRD fields", async () => {
+		it("updates PRD fields", async () => {
 			await createTestPRD("test-prd", { description: "Original" });
 
 			const updated = await updatePRD("test-prd", {
 				description: "Updated",
 			});
 
-			expect(updated.description).toBe("Updated");
+			assert.strictEqual(updated.description, "Updated");
 
 			const retrieved = await getPRD("test-prd");
-			expect(retrieved.description).toBe("Updated");
+			assert.strictEqual(retrieved.description, "Updated");
 		});
 
-		test("preserves name even if update tries to change it", async () => {
+		it("preserves name even if update tries to change it", async () => {
 			await createTestPRD("test-prd");
 
 			const updated = await updatePRD("test-prd", {
 				name: "different-name" as never,
 			});
 
-			expect(updated.name).toBe("test-prd");
+			assert.strictEqual(updated.name, "test-prd");
 		});
 	});
 
 	describe("getNextStory", () => {
-		test("returns null when no workable stories", async () => {
+		it("returns null when no workable stories", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -171,10 +173,10 @@ describe("Ralph State Management", () => {
 			});
 
 			const story = await getNextStory("test-prd");
-			expect(story).toBe(null);
+			assert.strictEqual(story, null);
 		});
 
-		test("returns highest priority pending story", async () => {
+		it("returns highest priority pending story", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -197,10 +199,10 @@ describe("Ralph State Management", () => {
 			});
 
 			const story = await getNextStory("test-prd");
-			expect(story?.id).toBe("US-002");
+			assert.strictEqual(story?.id, "US-002");
 		});
 
-		test("returns in_progress story first", async () => {
+		it("returns in_progress story first", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -223,10 +225,10 @@ describe("Ralph State Management", () => {
 			});
 
 			const story = await getNextStory("test-prd");
-			expect(story?.id).toBe("US-001"); // Lower priority wins, both are workable
+			assert.strictEqual(story?.id, "US-001"); // Lower priority wins, both are workable
 		});
 
-		test("skips blocked stories", async () => {
+		it("skips blocked stories", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -249,12 +251,12 @@ describe("Ralph State Management", () => {
 			});
 
 			const story = await getNextStory("test-prd");
-			expect(story?.id).toBe("US-002");
+			assert.strictEqual(story?.id, "US-002");
 		});
 	});
 
 	describe("updateStoryStatus", () => {
-		test("updates story status", async () => {
+		it("updates story status", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -271,10 +273,10 @@ describe("Ralph State Management", () => {
 			await updateStoryStatus("test-prd", "US-001", "completed");
 
 			const prd = await getPRD("test-prd");
-			expect(prd.stories[0]?.status).toBe("completed");
+			assert.strictEqual(prd.stories[0]?.status, "completed");
 		});
 
-		test("updates questions when blocking", async () => {
+		it("updates questions when blocking", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -291,21 +293,19 @@ describe("Ralph State Management", () => {
 			await updateStoryStatus("test-prd", "US-001", "blocked", ["Question 1?", "Question 2?"]);
 
 			const prd = await getPRD("test-prd");
-			expect(prd.stories[0]?.status).toBe("blocked");
-			expect(prd.stories[0]?.questions).toEqual(["Question 1?", "Question 2?"]);
+			assert.strictEqual(prd.stories[0]?.status, "blocked");
+			assert.deepStrictEqual(prd.stories[0]?.questions, ["Question 1?", "Question 2?"]);
 		});
 
-		test("throws error for non-existent story", async () => {
+		it("throws error for non-existent story", async () => {
 			await createTestPRD("test-prd");
 
-			await expect(updateStoryStatus("test-prd", "US-999", "completed")).rejects.toThrow(
-				"Story not found",
-			);
+			await assert.rejects(updateStoryStatus("test-prd", "US-999", "completed"), /Story not found/);
 		});
 	});
 
 	describe("updateLastRun", () => {
-		test("updates lastRun field", async () => {
+		it("updates lastRun field", async () => {
 			await createTestPRD("test-prd");
 
 			await updateLastRun("test-prd", {
@@ -316,13 +316,13 @@ describe("Ralph State Management", () => {
 			});
 
 			const prd = await getPRD("test-prd");
-			expect(prd.lastRun?.storyId).toBe("US-001");
-			expect(prd.lastRun?.reason).toBe("user_interrupted");
+			assert.strictEqual(prd.lastRun?.storyId, "US-001");
+			assert.strictEqual(prd.lastRun?.reason, "user_interrupted");
 		});
 	});
 
 	describe("isPRDComplete", () => {
-		test("returns true when all stories completed", async () => {
+		it("returns true when all stories completed", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -345,10 +345,10 @@ describe("Ralph State Management", () => {
 			});
 
 			const complete = await isPRDComplete("test-prd");
-			expect(complete).toBe(true);
+			assert.strictEqual(complete, true);
 		});
 
-		test("returns false when stories pending", async () => {
+		it("returns false when stories pending", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -371,12 +371,12 @@ describe("Ralph State Management", () => {
 			});
 
 			const complete = await isPRDComplete("test-prd");
-			expect(complete).toBe(false);
+			assert.strictEqual(complete, false);
 		});
 	});
 
 	describe("hasBlockedStories", () => {
-		test("returns blocked stories", async () => {
+		it("returns blocked stories", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -399,11 +399,11 @@ describe("Ralph State Management", () => {
 			});
 
 			const blocked = await hasBlockedStories("test-prd");
-			expect(blocked.length).toBe(1);
-			expect(blocked[0]?.id).toBe("US-001");
+			assert.strictEqual(blocked.length, 1);
+			assert.strictEqual(blocked[0]?.id, "US-001");
 		});
 
-		test("returns empty array when no blocked stories", async () => {
+		it("returns empty array when no blocked stories", async () => {
 			await createTestPRD("test-prd", {
 				stories: [
 					{
@@ -418,22 +418,22 @@ describe("Ralph State Management", () => {
 			});
 
 			const blocked = await hasBlockedStories("test-prd");
-			expect(blocked).toEqual([]);
+			assert.deepStrictEqual(blocked, []);
 		});
 	});
 
 	describe("getSpec", () => {
-		test("returns spec content", async () => {
+		it("returns spec content", async () => {
 			await createTestPRD("test-prd");
 
 			const spec = await getSpec("test-prd");
-			expect(spec).toContain("# Test Spec");
+			assert.ok(spec.includes("# Test Spec"));
 		});
 
-		test("throws error when spec missing", async () => {
+		it("throws error when spec missing", async () => {
 			const prdDir = ".omni/state/ralph/prds/no-spec";
 			mkdirSync(prdDir, { recursive: true });
-			await Bun.write(
+			await writeFile(
 				join(prdDir, "prd.json"),
 				JSON.stringify({
 					name: "no-spec",
@@ -443,39 +443,39 @@ describe("Ralph State Management", () => {
 				}),
 			);
 
-			await expect(getSpec("no-spec")).rejects.toThrow("Spec file not found");
+			await assert.rejects(getSpec("no-spec"), /Spec file not found/);
 		});
 	});
 
 	describe("appendProgress", () => {
-		test("appends content to progress log", async () => {
+		it("appends content to progress log", async () => {
 			await createTestPRD("test-prd");
 
 			await appendProgress("test-prd", "## Entry 1\n- Item 1");
 			await appendProgress("test-prd", "## Entry 2\n- Item 2");
 
 			const progress = await getProgress("test-prd");
-			expect(progress).toContain("## Entry 1");
-			expect(progress).toContain("## Entry 2");
+			assert.ok(progress.includes("## Entry 1"));
+			assert.ok(progress.includes("## Entry 2"));
 		});
 	});
 
 	describe("archivePRD", () => {
-		test("moves PRD to completed directory", async () => {
+		it("moves PRD to completed directory", async () => {
 			await createTestPRD("test-prd");
 
 			await archivePRD("test-prd");
 
 			const activePath = ".omni/state/ralph/prds/test-prd";
-			expect(existsSync(activePath)).toBe(false);
+			assert.strictEqual(existsSync(activePath), false);
 
 			const timestamp = new Date().toISOString().split("T")[0];
 			const completedPath = `.omni/state/ralph/completed-prds/${timestamp}-test-prd`;
-			expect(existsSync(completedPath)).toBe(true);
+			assert.strictEqual(existsSync(completedPath), true);
 		});
 
-		test("throws error for non-existent PRD", async () => {
-			await expect(archivePRD("non-existent")).rejects.toThrow("PRD not found");
+		it("throws error for non-existent PRD", async () => {
+			await assert.rejects(archivePRD("non-existent"), /PRD not found/);
 		});
 	});
 });

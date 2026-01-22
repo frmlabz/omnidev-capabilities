@@ -64,11 +64,11 @@ export async function generatePrompt(prd: PRD, story: Story, prdName: string): P
 
 	return `# Ralph Agent Instructions
 
-You are an autonomous coding agent working on the ${prd.name} feature.
+You are an autonomous coding agent working on a Ralph-managed PRD. Execute PRD-driven development by implementing one story per iteration.
 
 ## Feature Overview
 
-${prd.description}
+**${prd.name}**: ${prd.description}
 
 ## Your Current Task
 
@@ -79,16 +79,105 @@ ${criteriaLines}
 
 ## Workflow
 
-1. **Read the spec** at \`.omni/state/ralph/prds/${prdName}/spec.md\` for full requirements
-2. **Read the progress log** at \`.omni/state/ralph/prds/${prdName}/progress.txt\` (check Codebase Patterns first)
-3. **Implement this story** following the spec and acceptance criteria
-4. **Run quality checks**: \`bun run check\` (typecheck + lint + format:check)
-5. **Run tests**: \`bun test\`
-6. **Commit changes**: \`git commit -m "feat: [${story.id}] - ${story.title}"\`
-7. **Update prd.json**: Set this story's status to "completed"
-8. **Append to progress.txt**: Document what you did
+### 1. Read Context
 
-**Note:** Work on the current branch. Do not create or switch branches.
+**Check the PRD and progress first:**
+
+\`\`\`bash
+# Read the PRD to understand the feature
+cat .omni/state/ralph/prds/${prdName}/prd.json
+
+# Read the spec for detailed requirements
+cat .omni/state/ralph/prds/${prdName}/spec.md
+
+# Read progress log to understand patterns and recent work
+cat .omni/state/ralph/prds/${prdName}/progress.txt
+\`\`\`
+
+**Important:**
+- The **spec.md** contains the feature requirements
+- The **progress.txt** contains patterns discovered in previous iterations
+- The **lastRun** field in prd.json shows where the previous run stopped
+
+### 2. Pick Next Story
+
+Look at \`prd.json\` and find the next story to work on:
+
+1. Find stories with \`status: "in_progress"\` first (resume interrupted work)
+2. Otherwise, find the lowest \`priority\` story with \`status: "pending"\`
+3. Skip stories with \`status: "blocked"\` (waiting for user input)
+
+### 3. Implement the Story
+
+Follow the spec requirements and the story's acceptance criteria:
+
+- Implement ONLY what's needed for this story
+- Follow patterns from progress.txt
+- Keep changes focused and minimal
+
+### 4. Run Quality Checks
+
+Before committing, ensure all checks pass:
+
+\`\`\`bash
+npm run check      # Runs typecheck + lint + format:check
+npm test           # Run tests
+\`\`\`
+
+Fix any issues before proceeding.
+
+### 5. Commit Changes
+
+When all checks pass:
+
+\`\`\`bash
+git add .
+git commit -m "feat: [${story.id}] - ${story.title}"
+\`\`\`
+
+### 6. Update PRD
+
+Mark the story as completed in prd.json:
+
+\`\`\`json
+{
+  "id": "${story.id}",
+  "status": "completed"
+}
+\`\`\`
+
+Save the updated PRD.
+
+### 7. Append Progress
+
+Add an entry to progress.txt:
+
+\`\`\`markdown
+## [Date/Time] - ${story.id}: ${story.title}
+
+**What was done:**
+- Brief description of implementation
+
+**Files changed:**
+- file1.ts
+- file2.ts
+
+**Patterns discovered:**
+- Pattern or approach that worked well
+
+---
+\`\`\`
+
+### 8. Check for Completion
+
+After updating the PRD, check if ALL stories have \`status: "completed"\`.
+
+If ALL stories are complete, reply with:
+\`\`\`
+<promise>COMPLETE</promise>
+\`\`\`
+
+Otherwise, end your response normally. Ralph will spawn the next iteration.
 
 ## Spec File
 
@@ -96,62 +185,45 @@ ${criteriaLines}
 ${specContent.slice(0, 3000)}${specContent.length > 3000 ? "\n...(truncated)" : ""}
 \`\`\`
 
-## Progress Report Format
+## Handling Blocked Stories
 
-APPEND to progress.txt (never replace):
+If you cannot complete a story (unclear requirements, missing dependencies, etc.):
 
-\`\`\`markdown
-## [Date/Time] - ${story.id}: ${story.title}
+1. Set \`status: "blocked"\` in the story
+2. Add your questions to the \`questions\` array:
 
-**What was done:**
-- Implementation details
-
-**Files changed:**
-- file1.ts
-- file2.ts
-
-**Patterns discovered:**
-- Any reusable patterns
-
----
-\`\`\`
-
-## If You're Blocked
-
-If you cannot complete this story (unclear requirements, missing dependencies, etc.):
-
-1. Update prd.json: Set this story's status to "blocked"
-2. Add questions to the story's \`questions\` array
-3. End your response explaining why
-
-Example:
 \`\`\`json
 {
   "id": "${story.id}",
   "status": "blocked",
   "questions": [
-    "Should X return Y or Z?",
-    "What is the expected behavior for edge case W?"
+    "Should the API return 404 or empty array when no results?",
+    "What is the maximum page size for pagination?"
   ]
 }
 \`\`\`
 
+3. Reply with a summary explaining why you're blocked
+
+Ralph will stop and present the questions to the user.
+
 ## Running Commands
 
 \`\`\`bash
-bun run check         # TypeScript + lint + format check
-bun test              # Run tests
-bun run format        # Fix formatting
-bun run lint:fix      # Fix lint issues
+npm run check         # TypeScript + lint + format check
+npm test              # Run tests
+npm run format        # Fix formatting
+npm run lint          # Fix lint issues
 \`\`\`
 
-## Technology Stack
+## Key Principles
 
-- **Runtime**: Bun (not Node.js)
-- **Language**: TypeScript (strict mode)
-- **Packages**: ESM only
-- **Linting**: Biome
-- **Testing**: Bun's built-in test runner
+- **One story per iteration** - Never implement multiple stories at once
+- **Read the spec first** - The story title is just a summary
+- **Keep checks green** - Never commit failing tests or lint errors
+- **Document patterns** - Help future iterations by updating progress.txt
+- **Ask when blocked** - Use the questions array, don't guess
+- **Do NOT use type escape hatches** (\`any\`, \`as unknown\`)
 
 ## Stop Condition
 
@@ -162,13 +234,7 @@ If ALL stories are complete, reply with:
 
 Otherwise, end your response normally.
 
-## Important
-
-- Work on ONE story per iteration
-- Keep quality checks green
-- Commit with message: \`feat: [${story.id}] - ${story.title}\`
-- Do NOT use type escape hatches (\`any\`, \`as unknown\`)
-- If blocked, use the questions array - don't guess
+**Note:** PRDs work on the current branch. The user manages branches/worktrees externally.
 
 ## Other Stories in This PRD
 

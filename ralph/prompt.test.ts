@@ -2,11 +2,13 @@
  * Tests for Ralph prompt generator
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import assert from "node:assert";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { generatePrompt } from "./prompt";
-import type { PRD, Story } from "./types.d.ts";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { generatePrompt } from "./prompt.ts";
+import type { PRD, Story } from "./types.ts";
 
 const TEST_DIR = join(process.cwd(), ".test-ralph-prompt");
 const RALPH_DIR = join(TEST_DIR, ".omni/state/ralph");
@@ -25,12 +27,12 @@ async function createTestPRD(name: string, prd: Partial<PRD> = {}): Promise<void
 		...(prd.dependencies && { dependencies: prd.dependencies }),
 	};
 
-	await Bun.write(join(prdDir, "prd.json"), JSON.stringify(fullPRD, null, 2));
-	await Bun.write(
+	await writeFile(join(prdDir, "prd.json"), JSON.stringify(fullPRD, null, 2));
+	await writeFile(
 		join(prdDir, "progress.txt"),
 		"## Codebase Patterns\n\n---\n\n## Progress Log\n\n",
 	);
-	await Bun.write(join(prdDir, "spec.md"), "# Test Spec\n\nTest specification content");
+	await writeFile(join(prdDir, "spec.md"), "# Test Spec\n\nTest specification content");
 }
 
 beforeEach(() => {
@@ -48,7 +50,7 @@ afterEach(() => {
 });
 
 describe("generatePrompt", () => {
-	test("generates prompt with PRD context", async () => {
+	it("generates prompt with PRD context", async () => {
 		const prd: PRD = {
 			name: "test-project",
 			description: "Test project description",
@@ -69,15 +71,15 @@ describe("generatePrompt", () => {
 
 		const prompt = await generatePrompt(prd, story, "test-project");
 
-		expect(prompt).toContain("test-project");
-		expect(prompt).toContain("Test project description");
-		expect(prompt).toContain("US-001");
-		expect(prompt).toContain("Test Story");
-		expect(prompt).toContain("Feature works");
-		expect(prompt).toContain("Tests pass");
+		assert.ok(prompt.includes("test-project"));
+		assert.ok(prompt.includes("Test project description"));
+		assert.ok(prompt.includes("US-001"));
+		assert.ok(prompt.includes("Test Story"));
+		assert.ok(prompt.includes("Feature works"));
+		assert.ok(prompt.includes("Tests pass"));
 	});
 
-	test("includes spec content", async () => {
+	it("includes spec content", async () => {
 		const prd: PRD = {
 			name: "spec-test",
 			description: "Test",
@@ -98,11 +100,11 @@ describe("generatePrompt", () => {
 
 		const prompt = await generatePrompt(prd, story, "spec-test");
 
-		expect(prompt).toContain("Test Spec");
-		expect(prompt).toContain("Test specification content");
+		assert.ok(prompt.includes("Test Spec"));
+		assert.ok(prompt.includes("Test specification content"));
 	});
 
-	test("includes recent progress", async () => {
+	it("includes recent progress", async () => {
 		const prd: PRD = {
 			name: "progress-test",
 			description: "Test",
@@ -122,16 +124,16 @@ describe("generatePrompt", () => {
 		await createTestPRD("progress-test", prd);
 
 		// Add progress
-		const { appendProgress } = await import("./state");
+		const { appendProgress } = await import("./state.ts");
 		await appendProgress("progress-test", "## Test Progress\n- Did something");
 
 		const prompt = await generatePrompt(prd, story, "progress-test");
 
-		expect(prompt).toContain("Test Progress");
-		expect(prompt).toContain("Did something");
+		assert.ok(prompt.includes("Test Progress"));
+		assert.ok(prompt.includes("Did something"));
 	});
 
-	test("includes codebase patterns", async () => {
+	it("includes codebase patterns", async () => {
 		const prd: PRD = {
 			name: "patterns-test",
 			description: "Test",
@@ -151,18 +153,18 @@ describe("generatePrompt", () => {
 		await createTestPRD("patterns-test", prd);
 		const prdDir = join(PRDS_DIR, "patterns-test");
 		const progressPath = join(prdDir, "progress.txt");
-		await Bun.write(
+		await writeFile(
 			progressPath,
-			"## Codebase Patterns\n- Use Bun.file()\n- Use strict types\n\n---\n\n## Progress Log\n",
+			"## Codebase Patterns\n- Use writeFile()\n- Use strict types\n\n---\n\n## Progress Log\n",
 		);
 
 		const prompt = await generatePrompt(prd, story, "patterns-test");
 
-		expect(prompt).toContain("Use Bun.file()");
-		expect(prompt).toContain("Use strict types");
+		assert.ok(prompt.includes("Use writeFile()"));
+		assert.ok(prompt.includes("Use strict types"));
 	});
 
-	test("handles empty patterns gracefully", async () => {
+	it("handles empty patterns gracefully", async () => {
 		const prd: PRD = {
 			name: "no-patterns",
 			description: "Test",
@@ -183,10 +185,10 @@ describe("generatePrompt", () => {
 
 		const prompt = await generatePrompt(prd, story, "no-patterns");
 
-		expect(prompt).toContain("None yet");
+		assert.ok(prompt.includes("None yet"));
 	});
 
-	test("formats acceptance criteria as bullet list", async () => {
+	it("formats acceptance criteria as bullet list", async () => {
 		const prd: PRD = {
 			name: "criteria-test",
 			description: "Test",
@@ -207,11 +209,11 @@ describe("generatePrompt", () => {
 
 		const prompt = await generatePrompt(prd, story, "criteria-test");
 
-		expect(prompt).toContain("  - First criterion");
-		expect(prompt).toContain("  - Second criterion");
+		assert.ok(prompt.includes("  - First criterion"));
+		assert.ok(prompt.includes("  - Second criterion"));
 	});
 
-	test("includes other stories for context", async () => {
+	it("includes other stories for context", async () => {
 		const prd: PRD = {
 			name: "multi-story",
 			description: "Test",
@@ -237,12 +239,12 @@ describe("generatePrompt", () => {
 		};
 
 		const story = prd.stories[1];
-		expect(story).toBeDefined();
+		assert.ok(story !== undefined);
 
 		await createTestPRD("multi-story", prd);
 
-		const prompt = await generatePrompt(prd, story!, "multi-story");
+		const prompt = await generatePrompt(prd, story, "multi-story");
 
-		expect(prompt).toContain("US-001: First Story [completed]");
+		assert.ok(prompt.includes("US-001: First Story [completed]"));
 	});
 });

@@ -2,11 +2,13 @@
  * Tests for Ralph orchestrator
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import assert from "node:assert";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { loadRalphConfig, runAgent } from "./orchestrator";
-import type { PRD } from "./types";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { loadRalphConfig, runAgent } from "./orchestrator.ts";
+import type { PRD } from "./types.ts";
 
 const TEST_DIR = join(process.cwd(), ".test-ralph-orchestrator");
 const RALPH_DIR = join(TEST_DIR, ".omni/state/ralph");
@@ -40,12 +42,12 @@ async function createTestPRD(name: string, options: Partial<PRD> = {}): Promise<
 		...(options.dependencies && { dependencies: options.dependencies }),
 	};
 
-	await Bun.write(join(prdDir, "prd.json"), JSON.stringify(prd, null, 2));
-	await Bun.write(
+	await writeFile(join(prdDir, "prd.json"), JSON.stringify(prd, null, 2));
+	await writeFile(
 		join(prdDir, "progress.txt"),
 		"## Codebase Patterns\n\n---\n\n## Progress Log\n\n",
 	);
-	await Bun.write(join(prdDir, "spec.md"), "# Test Spec\n\nTest content");
+	await writeFile(join(prdDir, "spec.md"), "# Test Spec\n\nTest content");
 }
 
 beforeEach(() => {
@@ -64,41 +66,41 @@ afterEach(() => {
 });
 
 describe("loadRalphConfig", () => {
-	test("loads valid config", async () => {
+	it("loads valid config", async () => {
 		const config = await loadRalphConfig();
 
-		expect(config.default_agent).toBe("test");
-		expect(config.default_iterations).toBe(5);
-		expect(config.auto_archive).toBe(false);
-		expect(config.agents["test"]).toEqual({
+		assert.strictEqual(config.default_agent, "test");
+		assert.strictEqual(config.default_iterations, 5);
+		assert.strictEqual(config.auto_archive, false);
+		assert.deepStrictEqual(config.agents["test"], {
 			command: "echo",
 			args: ["test output"],
 		});
 	});
 
-	test("throws if config doesn't exist", async () => {
+	it("throws if config doesn't exist", async () => {
 		rmSync(CONFIG_PATH);
 
-		await expect(loadRalphConfig()).rejects.toThrow("Ralph config not found");
+		await assert.rejects(loadRalphConfig(), /Ralph config not found/);
 	});
 
-	test("throws if config is invalid", async () => {
+	it("throws if config is invalid", async () => {
 		writeFileSync(CONFIG_PATH, "invalid toml");
 
-		await expect(loadRalphConfig()).rejects.toThrow();
+		await assert.rejects(loadRalphConfig());
 	});
 
-	test("parses multiple agents", async () => {
+	it("parses multiple agents", async () => {
 		const config = await loadRalphConfig();
 
-		expect(config.agents["test"]).toBeDefined();
-		expect(config.agents["claude"]).toBeDefined();
-		expect(config.agents["claude"]?.command).toBe("npx");
+		assert.ok(config.agents["test"] !== undefined);
+		assert.ok(config.agents["claude"] !== undefined);
+		assert.strictEqual(config.agents["claude"]?.command, "npx");
 	});
 });
 
 describe("runAgent", () => {
-	test("spawns agent with prompt", async () => {
+	it("spawns agent with prompt", async () => {
 		const agentConfig = {
 			command: "echo",
 			args: ["hello"],
@@ -106,11 +108,11 @@ describe("runAgent", () => {
 
 		const result = await runAgent("test prompt", agentConfig);
 
-		expect(result.output).toContain("hello");
-		expect(result.exitCode).toBe(0);
+		assert.ok(result.output.includes("hello"));
+		assert.strictEqual(result.exitCode, 0);
 	});
 
-	test("returns exit code on failure", async () => {
+	it("returns exit code on failure", async () => {
 		const agentConfig = {
 			command: "false", // Command that always fails
 			args: [],
@@ -118,18 +120,18 @@ describe("runAgent", () => {
 
 		const result = await runAgent("test", agentConfig);
 
-		expect(result.exitCode).toBe(1);
+		assert.strictEqual(result.exitCode, 1);
 	});
 });
 
 describe("runOrchestration", () => {
-	test("throws if PRD doesn't exist", async () => {
-		const { runOrchestration } = await import("./orchestrator");
+	it("throws if PRD doesn't exist", async () => {
+		const { runOrchestration } = await import("./orchestrator.ts");
 
-		await expect(runOrchestration("nonexistent")).rejects.toThrow("PRD not found: nonexistent");
+		await assert.rejects(runOrchestration("nonexistent"), /PRD not found: nonexistent/);
 	});
 
-	test("stops when blocked stories exist", async () => {
+	it("stops when blocked stories exist", async () => {
 		await createTestPRD("blocked-prd", {
 			description: "Blocked PRD",
 			stories: [
@@ -144,7 +146,7 @@ describe("runOrchestration", () => {
 			],
 		});
 
-		const { runOrchestration } = await import("./orchestrator");
+		const { runOrchestration } = await import("./orchestrator.ts");
 
 		// Should stop immediately due to blocked story
 		await runOrchestration("blocked-prd");
@@ -152,7 +154,7 @@ describe("runOrchestration", () => {
 		// No crash = success
 	});
 
-	test("completes when no stories remain", async () => {
+	it("completes when no stories remain", async () => {
 		await createTestPRD("completed-prd", {
 			description: "Completed PRD",
 			stories: [
@@ -167,7 +169,7 @@ describe("runOrchestration", () => {
 			],
 		});
 
-		const { runOrchestration } = await import("./orchestrator");
+		const { runOrchestration } = await import("./orchestrator.ts");
 
 		// Should complete immediately without running agent
 		await runOrchestration("completed-prd");
