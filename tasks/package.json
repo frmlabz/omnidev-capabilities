@@ -6,10 +6,7 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit"
 	},
-	"dependencies": {
-		"@omnidev-ai/core": "latest"
-	},
 	"devDependencies": {
-		"@types/bun": "latest"
+		"@omnidev-ai/capability": "latest"
 	}
 }

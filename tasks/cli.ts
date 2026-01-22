@@ -1,10 +1,10 @@
 /**
  * Task CLI Commands
  *
- * CLI interface for task management using stricli.
+ * CLI interface for task management.
  */
 
-import { buildCommand, buildRouteMap } from "@stricli/core";
+import { command, routes } from "@omnidev-ai/capability";
 import {
 	addComment,
 	createTask,
@@ -19,15 +19,19 @@ import type { TaskStatus } from "./types.js";
 /**
  * Create a new task
  */
-async function runCreate(
-	flags: {
-		description?: string;
-		tags?: string;
-		priority?: number;
-	},
-	title: string,
-): Promise<void> {
-	const tags = flags.tags ? flags.tags.split(",").map((t) => t.trim()) : [];
+async function runCreate(flags: Record<string, unknown>, title?: unknown): Promise<void> {
+	if (!title || typeof title !== "string") {
+		console.error("Error: Task title is required");
+		console.error(
+			"\nUsage: omnidev task create <title> [--description ...] [--tags ...] [--priority N]",
+		);
+		process.exit(1);
+	}
+
+	const tagsStr = typeof flags["tags"] === "string" ? flags["tags"] : undefined;
+	const tags = tagsStr ? tagsStr.split(",").map((t) => t.trim()) : [];
+	const description = typeof flags["description"] === "string" ? flags["description"] : undefined;
+	const priority = typeof flags["priority"] === "number" ? flags["priority"] : undefined;
 
 	try {
 		const input: {
@@ -36,9 +40,9 @@ async function runCreate(
 			tags?: string[];
 			priority?: number;
 		} = { title };
-		if (flags.description) input.description = flags.description;
+		if (description) input.description = description;
 		if (tags.length > 0) input.tags = tags;
-		if (flags.priority !== undefined) input.priority = flags.priority;
+		if (priority !== undefined) input.priority = priority;
 
 		const task = await createTask(input);
 
@@ -57,20 +61,22 @@ async function runCreate(
 /**
  * List tasks
  */
-async function runList(flags: {
-	status?: TaskStatus;
-	tags?: string;
-	priority?: number;
-}): Promise<void> {
+async function runList(flags: Record<string, unknown>): Promise<void> {
 	try {
+		const status =
+			typeof flags["status"] === "string" ? (flags["status"] as TaskStatus) : undefined;
+		const tagsStr = typeof flags["tags"] === "string" ? flags["tags"] : undefined;
+		const tags = tagsStr ? tagsStr.split(",").map((t) => t.trim()) : undefined;
+		const priority = typeof flags["priority"] === "number" ? flags["priority"] : undefined;
+
 		const filter: {
 			status?: TaskStatus;
 			tags?: string[];
 			priority?: number;
 		} = {};
-		if (flags.status) filter.status = flags.status;
-		if (flags.tags) filter.tags = flags.tags.split(",").map((t) => t.trim());
-		if (flags.priority !== undefined) filter.priority = flags.priority;
+		if (status) filter.status = status;
+		if (tags) filter.tags = tags;
+		if (priority !== undefined) filter.priority = priority;
 
 		const tasks = await getTasks(Object.keys(filter).length > 0 ? filter : undefined);
 
@@ -94,9 +100,9 @@ async function runList(flags: {
 		}
 
 		const printTask = (t: (typeof tasks)[0]) => {
-			const priority = "⭐".repeat(t.priority);
-			const tags = t.tags.length > 0 ? ` [${t.tags.join(", ")}]` : "";
-			console.log(`  ${t.id}: ${t.title} ${priority}${tags}`);
+			const priorityStars = "⭐".repeat(t.priority);
+			const tagsDisplay = t.tags.length > 0 ? ` [${t.tags.join(", ")}]` : "";
+			console.log(`  ${t.id}: ${t.title} ${priorityStars}${tagsDisplay}`);
 			if (t.comments.length > 0) {
 				console.log(`    💬 ${t.comments.length} comment${t.comments.length > 1 ? "s" : ""}`);
 			}
@@ -134,8 +140,8 @@ async function runList(flags: {
 /**
  * Show task details
  */
-async function runShow(_flags: Record<string, never>, taskId?: string): Promise<void> {
-	if (!taskId) {
+async function runShow(_flags: Record<string, unknown>, taskId?: unknown): Promise<void> {
+	if (!taskId || typeof taskId !== "string") {
 		console.error("Error: Task ID is required");
 		console.error("\nUsage: omnidev task show <task-id>");
 		process.exit(1);
@@ -177,11 +183,11 @@ async function runShow(_flags: Record<string, never>, taskId?: string): Promise<
  * Update task status
  */
 async function runStatus(
-	_flags: Record<string, never>,
-	taskId?: string,
-	status?: string,
+	_flags: Record<string, unknown>,
+	taskId?: unknown,
+	status?: unknown,
 ): Promise<void> {
-	if (!taskId || !status) {
+	if (!taskId || typeof taskId !== "string" || !status || typeof status !== "string") {
 		console.error("Error: Task ID and status are required");
 		console.error("\nUsage: omnidev task status <task-id> <status>");
 		console.error("Status values: pending, in_progress, completed, blocked");
@@ -207,16 +213,8 @@ async function runStatus(
 /**
  * Update task fields
  */
-async function runUpdate(
-	flags: {
-		title?: string;
-		description?: string;
-		tags?: string;
-		priority?: number;
-	},
-	taskId?: string,
-): Promise<void> {
-	if (!taskId) {
+async function runUpdate(flags: Record<string, unknown>, taskId?: unknown): Promise<void> {
+	if (!taskId || typeof taskId !== "string") {
 		console.error("Error: Task ID is required");
 		console.error(
 			"\nUsage: omnidev task update <task-id> [--title ...] [--description ...] [--tags ...] [--priority N]",
@@ -224,16 +222,22 @@ async function runUpdate(
 		process.exit(1);
 	}
 
+	const title = typeof flags["title"] === "string" ? flags["title"] : undefined;
+	const description = typeof flags["description"] === "string" ? flags["description"] : undefined;
+	const tagsStr = typeof flags["tags"] === "string" ? flags["tags"] : undefined;
+	const tags = tagsStr ? tagsStr.split(",").map((t) => t.trim()) : undefined;
+	const priority = typeof flags["priority"] === "number" ? flags["priority"] : undefined;
+
 	const updates: {
 		title?: string;
 		description?: string;
 		tags?: string[];
 		priority?: number;
 	} = {};
-	if (flags.title) updates.title = flags.title;
-	if (flags.description) updates.description = flags.description;
-	if (flags.tags) updates.tags = flags.tags.split(",").map((t) => t.trim());
-	if (flags.priority !== undefined) updates.priority = flags.priority;
+	if (title) updates.title = title;
+	if (description) updates.description = description;
+	if (tags) updates.tags = tags;
+	if (priority !== undefined) updates.priority = priority;
 
 	// Check if any updates were provided
 	if (Object.keys(updates).length === 0) {
@@ -258,11 +262,10 @@ async function runUpdate(
 /**
  * Add comment to task
  */
-async function runComment(
-	flags: { author?: "user" | "llm"; message?: string },
-	taskId?: string,
-): Promise<void> {
-	if (!taskId || !flags.message) {
+async function runComment(flags: Record<string, unknown>, taskId?: unknown): Promise<void> {
+	const message = typeof flags["message"] === "string" ? flags["message"] : undefined;
+
+	if (!taskId || typeof taskId !== "string" || !message) {
 		console.error("Error: Task ID and message are required");
 		console.error(
 			'\nUsage: omnidev task comment <task-id> --message "Your comment" [--author user|llm]',
@@ -270,10 +273,10 @@ async function runComment(
 		process.exit(1);
 	}
 
-	const author = flags.author || "user";
+	const author = flags["author"] === "user" || flags["author"] === "llm" ? flags["author"] : "user";
 
 	try {
-		const task = await addComment(taskId, flags.message, author);
+		const task = await addComment(taskId, message, author);
 		console.log(`✓ Added comment to task ${task.id}`);
 	} catch (error) {
 		console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -284,8 +287,8 @@ async function runComment(
 /**
  * Delete a task
  */
-async function runDelete(_flags: Record<string, never>, taskId?: string): Promise<void> {
-	if (!taskId) {
+async function runDelete(_flags: Record<string, unknown>, taskId?: unknown): Promise<void> {
+	if (!taskId || typeof taskId !== "string") {
 		console.error("Error: Task ID is required");
 		console.error("\nUsage: omnidev task delete <task-id>");
 		process.exit(1);
@@ -301,219 +304,141 @@ async function runDelete(_flags: Record<string, never>, taskId?: string): Promis
 }
 
 // Build commands
-const createCommand = buildCommand({
-	func: runCreate,
+const createCommand = command({
+	brief: "Create a new task",
 	parameters: {
 		flags: {
 			description: {
-				kind: "parsed" as const,
+				kind: "string",
 				brief: "Task description (markdown)",
-				parse: String,
 				optional: true,
 			},
 			tags: {
-				kind: "parsed" as const,
+				kind: "string",
 				brief: "Comma-separated tags (e.g., bug,urgent)",
-				parse: String,
 				optional: true,
 			},
 			priority: {
-				kind: "parsed" as const,
+				kind: "number",
 				brief: "Priority (1-5, 5=highest)",
-				parse: Number,
 				optional: true,
 			},
 		},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "Task title",
-					parse: String,
-					optional: false,
-				},
-			],
-		},
+		positional: [{ brief: "Task title", kind: "string" }],
 	},
-	docs: {
-		brief: "Create a new task",
-	},
+	func: runCreate,
 });
 
-const listCommand = buildCommand({
-	func: runList,
+const listCommand = command({
+	brief: "List all tasks",
 	parameters: {
 		flags: {
 			status: {
-				kind: "enum" as const,
+				kind: "enum",
 				brief: "Filter by status",
-				values: ["pending", "in_progress", "completed", "blocked"] as const,
+				values: ["pending", "in_progress", "completed", "blocked"],
 				optional: true,
 			},
 			tags: {
-				kind: "parsed" as const,
+				kind: "string",
 				brief: "Filter by tags (comma-separated)",
-				parse: String,
 				optional: true,
 			},
 			priority: {
-				kind: "parsed" as const,
+				kind: "number",
 				brief: "Filter by priority",
-				parse: Number,
 				optional: true,
 			},
 		},
 	},
-	docs: {
-		brief: "List all tasks",
-	},
+	func: runList,
 });
 
-const showCommand = buildCommand({
+const showCommand = command({
+	brief: "Show task details",
+	parameters: {
+		positional: [{ brief: "Task ID", kind: "string", optional: true }],
+	},
 	func: runShow,
-	parameters: {
-		flags: {},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "Task ID",
-					parse: String,
-					optional: true,
-				},
-			],
-		},
-	},
-	docs: {
-		brief: "Show task details",
-	},
 });
 
-const statusCommand = buildCommand({
+const statusCommand = command({
+	brief: "Update task status",
+	parameters: {
+		positional: [
+			{ brief: "Task ID", kind: "string", optional: true },
+			{
+				brief: "New status (pending|in_progress|completed|blocked)",
+				kind: "string",
+				optional: true,
+			},
+		],
+	},
 	func: runStatus,
-	parameters: {
-		flags: {},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "Task ID",
-					parse: String,
-					optional: true,
-				},
-				{
-					brief: "New status (pending|in_progress|completed|blocked)",
-					parse: String,
-					optional: true,
-				},
-			],
-		},
-	},
-	docs: {
-		brief: "Update task status",
-	},
 });
 
-const updateCommand = buildCommand({
-	func: runUpdate,
+const updateCommand = command({
+	brief: "Update task fields",
 	parameters: {
 		flags: {
 			title: {
-				kind: "parsed" as const,
+				kind: "string",
 				brief: "New title",
-				parse: String,
 				optional: true,
 			},
 			description: {
-				kind: "parsed" as const,
+				kind: "string",
 				brief: "New description",
-				parse: String,
 				optional: true,
 			},
 			tags: {
-				kind: "parsed" as const,
+				kind: "string",
 				brief: "New tags (comma-separated)",
-				parse: String,
 				optional: true,
 			},
 			priority: {
-				kind: "parsed" as const,
+				kind: "number",
 				brief: "New priority (1-5)",
-				parse: Number,
 				optional: true,
 			},
 		},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "Task ID",
-					parse: String,
-					optional: true,
-				},
-			],
-		},
+		positional: [{ brief: "Task ID", kind: "string", optional: true }],
 	},
-	docs: {
-		brief: "Update task fields",
-	},
+	func: runUpdate,
 });
 
-const commentCommand = buildCommand({
-	func: runComment,
+const commentCommand = command({
+	brief: "Add comment to task",
 	parameters: {
 		flags: {
 			message: {
-				kind: "parsed" as const,
+				kind: "string",
 				brief: "Comment message",
-				parse: String,
 				optional: true,
 			},
 			author: {
-				kind: "enum" as const,
+				kind: "enum",
 				brief: "Comment author",
-				values: ["user", "llm"] as const,
+				values: ["user", "llm"],
 				optional: true,
 			},
 		},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "Task ID",
-					parse: String,
-					optional: true,
-				},
-			],
-		},
+		positional: [{ brief: "Task ID", kind: "string", optional: true }],
 	},
-	docs: {
-		brief: "Add comment to task",
-	},
+	func: runComment,
 });
 
-const deleteCommand = buildCommand({
-	func: runDelete,
+const deleteCommand = command({
+	brief: "Delete a task",
 	parameters: {
-		flags: {},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "Task ID",
-					parse: String,
-					optional: true,
-				},
-			],
-		},
+		positional: [{ brief: "Task ID", kind: "string", optional: true }],
 	},
-	docs: {
-		brief: "Delete a task",
-	},
+	func: runDelete,
 });
 
 // Export route map
-export const taskRoutes = buildRouteMap({
+export const taskRoutes = routes({
+	brief: "Task management",
 	routes: {
 		create: createCommand,
 		list: listCommand,
@@ -522,8 +447,5 @@ export const taskRoutes = buildRouteMap({
 		update: updateCommand,
 		comment: commentCommand,
 		delete: deleteCommand,
-	},
-	docs: {
-		brief: "Task management",
 	},
 });

@@ -11,7 +11,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { buildCommand, buildRouteMap, debug } from "@omnidev-ai/core";
+import { command, routes } from "@omnidev-ai/capability";
+
+// TODO: import { debug } from "@omnidev-ai/capability" once package is redeployed
+const debug = (_msg: string, _ctx?: Record<string, unknown>) => {};
 import { buildDependencyGraph, canStartPRD } from "./state.js";
 import type { PRD, Story } from "./types";
 
@@ -106,8 +109,8 @@ export async function runList(): Promise<void> {
 /**
  * Show detailed status of one PRD
  */
-export async function runStatus(_flags: Record<string, never>, prdName?: string): Promise<void> {
-	if (!prdName) {
+export async function runStatus(_flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
+	if (!prdName || typeof prdName !== "string") {
 		// If no PRD specified, list them
 		await runList();
 		return;
@@ -211,8 +214,8 @@ export async function runStatus(_flags: Record<string, never>, prdName?: string)
 /**
  * Start Ralph orchestration
  */
-export async function runStart(_flags: Record<string, never>, prdName: string): Promise<void> {
-	if (!prdName) {
+export async function runStart(_flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
+	if (!prdName || typeof prdName !== "string") {
 		console.error("Usage: omnidev ralph start <prd-name>");
 		console.error("\nAvailable PRDs:");
 		await runList();
@@ -244,8 +247,11 @@ export async function runStart(_flags: Record<string, never>, prdName: string): 
 /**
  * View progress log
  */
-export async function runProgress(flags: { tail?: number }, prdName?: string): Promise<void> {
-	if (!prdName) {
+export async function runProgress(
+	flags: Record<string, unknown>,
+	prdName?: unknown,
+): Promise<void> {
+	if (!prdName || typeof prdName !== "string") {
 		console.error("Usage: omnidev ralph progress <prd-name>");
 		console.error("\nAvailable PRDs:");
 		await runList();
@@ -260,98 +266,63 @@ export async function runProgress(flags: { tail?: number }, prdName?: string): P
 
 	const content = await readFile(progressPath, "utf-8");
 
-	if (flags.tail) {
+	const tail = typeof flags["tail"] === "number" ? flags["tail"] : undefined;
+	if (tail) {
 		const lines = content.split("\n");
-		console.log(lines.slice(-flags.tail).join("\n"));
+		console.log(lines.slice(-tail).join("\n"));
 	} else {
 		console.log(content);
 	}
 }
 
 // Build commands
-const listCommand = buildCommand({
+const listCommand = command({
+	brief: "List all PRDs with status summary",
 	func: runList,
-	parameters: {},
-	docs: {
-		brief: "List all PRDs with status summary",
-	},
 });
 
-const statusCommand = buildCommand({
+const statusCommand = command({
+	brief: "Show detailed status of a PRD",
+	parameters: {
+		positional: [
+			{ brief: "PRD name (optional - shows list if omitted)", kind: "string", optional: true },
+		],
+	},
 	func: runStatus,
-	parameters: {
-		flags: {},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "PRD name (optional - shows list if omitted)",
-					parse: String,
-					optional: true,
-				},
-			],
-		},
-	},
-	docs: {
-		brief: "Show detailed status of a PRD",
-	},
 });
 
-const startCommand = buildCommand({
+const startCommand = command({
+	brief: "Start Ralph orchestration (Ctrl+C to stop)",
+	parameters: {
+		positional: [{ brief: "PRD name", kind: "string" }],
+	},
 	func: runStart,
-	parameters: {
-		flags: {},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "PRD name",
-					parse: String,
-				},
-			],
-		},
-	},
-	docs: {
-		brief: "Start Ralph orchestration (Ctrl+C to stop)",
-	},
 });
 
-const progressCommand = buildCommand({
-	func: runProgress,
+const progressCommand = command({
+	brief: "View progress log",
 	parameters: {
 		flags: {
 			tail: {
-				kind: "parsed" as const,
+				kind: "number",
 				brief: "Show last N lines",
-				parse: Number,
 				optional: true,
 			},
 		},
-		positional: {
-			kind: "tuple" as const,
-			parameters: [
-				{
-					brief: "PRD name (optional - shows error if omitted)",
-					parse: String,
-					optional: true,
-				},
-			],
-		},
+		positional: [
+			{ brief: "PRD name (optional - shows error if omitted)", kind: "string", optional: true },
+		],
 	},
-	docs: {
-		brief: "View progress log",
-	},
+	func: runProgress,
 });
 
 // Export route map
-export const ralphRoutes = buildRouteMap({
+export const ralphRoutes = routes({
+	brief: "Ralph AI orchestrator",
 	routes: {
 		list: listCommand,
 		status: statusCommand,
 		start: startCommand,
 		progress: progressCommand,
-	},
-	docs: {
-		brief: "Ralph AI orchestrator",
 	},
 });

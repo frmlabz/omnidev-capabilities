@@ -6,6 +6,7 @@
  */
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Task } from "./types.js";
 
@@ -44,7 +45,7 @@ export function ensureTasksDir(): void {
 export async function saveTask(task: Task): Promise<void> {
 	ensureTasksDir();
 	const path = getTaskPath(task.id);
-	await Bun.write(path, JSON.stringify(task, null, 2));
+	await writeFile(path, JSON.stringify(task, null, 2));
 }
 
 /**
@@ -58,7 +59,7 @@ export async function loadTask(taskId: string): Promise<Task> {
 	}
 
 	try {
-		const content = await Bun.file(path).text();
+		const content = await readFile(path, "utf-8");
 		const task = JSON.parse(content) as Task;
 
 		// Validate task structure

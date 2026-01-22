@@ -4,7 +4,7 @@
  * Provides PRD-driven development through iterative AI agent invocations.
  */
 
-import type { CapabilityExport } from "@omnidev-ai/core";
+import type { CapabilityExport } from "@omnidev-ai/capability";
 import { ralphRoutes } from "./cli.js";
 import { sync } from "./sync.js";
 
