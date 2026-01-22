@@ -19,7 +19,5 @@
 		"typescript": "^5.7.2",
 		"lefthook": "^2.0.13"
 	},
-	"dependencies": {
-		"@omnidev-ai/core": "latest"
-	}
+	"dependencies": {}
 }
