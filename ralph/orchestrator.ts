@@ -134,15 +134,11 @@ export async function runAgent(
 		let stderr = "";
 
 		proc.stdout?.on("data", (data) => {
-			const text = data.toString();
-			stdout += text;
-			process.stdout.write(text); // Stream to console in real-time
+			stdout += data.toString();
 		});
 
 		proc.stderr?.on("data", (data) => {
-			const text = data.toString();
-			stderr += text;
-			process.stderr.write(text); // Stream to console in real-time
+			stderr += data.toString();
 		});
 
 		proc.on("error", (error) => {
@@ -270,10 +266,13 @@ export async function runOrchestration(prdName: string): Promise<void> {
 		const prompt = await generatePrompt(prd, story, prdName);
 
 		// Run agent
-		console.log("Spawning agent...\n");
+		console.log("Spawning agent...");
 		const { output, exitCode } = await runAgent(prompt, agentConfig);
 
-		console.log(`\n--- Agent finished (exit code: ${exitCode}) ---\n`);
+		// Log output
+		console.log("\n--- Agent Output ---");
+		console.log(output);
+		console.log(`--- Exit Code: ${exitCode} ---\n`);
 
 		// Check for completion signal
 		if (output.includes("<promise>COMPLETE</promise>")) {
