@@ -49,6 +49,18 @@ export async function generatePrompt(prd: PRD, story: Story, prdName: string): P
 	// Format acceptance criteria
 	const criteriaLines = story.acceptanceCriteria.map((c) => `  - ${c}`).join("\n");
 
+	// Format previous questions/answers if story was unblocked
+	let questionsAnswersText = "";
+	if (story.answers && story.answers.length > 0) {
+		questionsAnswersText = "\n\n**Previous Questions & User Answers:**\n";
+		for (let i = 0; i < story.questions.length; i++) {
+			const question = story.questions[i];
+			const answer = story.answers[i];
+			questionsAnswersText += `  Q${i + 1}: ${question}\n`;
+			questionsAnswersText += `  A${i + 1}: ${answer}\n\n`;
+		}
+	}
+
 	// Format patterns
 	const patternsText = patterns.length > 0 ? patterns.map((p) => `- ${p}`).join("\n") : "None yet";
 
@@ -75,7 +87,7 @@ You are an autonomous coding agent working on a Ralph-managed PRD. Execute PRD-d
 **${story.id}: ${story.title}**
 
 Acceptance Criteria:
-${criteriaLines}
+${criteriaLines}${questionsAnswersText}
 
 ## Workflow
 

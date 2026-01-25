@@ -25,6 +25,8 @@ export interface Story {
 	priority: number;
 	/** Questions for user when blocked */
 	questions: string[];
+	/** User's answers to questions (parallel array to questions) */
+	answers?: string[];
 }
 
 /**
@@ -42,6 +44,20 @@ export interface LastRun {
 }
 
 /**
+ * Metrics tracked for a PRD
+ */
+export interface PRDMetrics {
+	/** Total tokens used (input + output) */
+	totalTokens?: number;
+	/** Total input tokens */
+	inputTokens?: number;
+	/** Total output tokens */
+	outputTokens?: number;
+	/** Number of agent iterations run */
+	iterations?: number;
+}
+
+/**
  * Product Requirements Document
  */
 export interface PRD {
@@ -51,12 +67,20 @@ export interface PRD {
 	description: string;
 	/** ISO timestamp of creation */
 	createdAt: string;
+	/** ISO timestamp when work first began */
+	startedAt?: string;
+	/** ISO timestamp when PRD was completed */
+	completedAt?: string;
+	/** ISO timestamp when findings were extracted and PRD was archived */
+	archivedAt?: string;
 	/** List of stories (work chunks) */
 	stories: Story[];
 	/** PRD names that must be completed before this one can start */
 	dependencies?: string[];
 	/** Last run information (set on Ctrl+C or completion) */
 	lastRun?: LastRun;
+	/** Tracked metrics */
+	metrics?: PRDMetrics;
 }
 
 /**

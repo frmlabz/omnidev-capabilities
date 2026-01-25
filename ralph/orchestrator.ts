@@ -15,7 +15,10 @@ import {
 	getPRD,
 	hasBlockedStories,
 	isPRDComplete,
+	markPRDCompleted,
+	markPRDStarted,
 	updateLastRun,
+	updateMetrics,
 	updateStoryStatus,
 } from "./state.ts";
 import type { AgentConfig, RalphConfig, Story } from "./types.d.ts";
@@ -208,21 +211,32 @@ export async function runOrchestration(prdName: string): Promise<void> {
 	console.log(`Max iterations: ${maxIterations}`);
 	console.log(`Press Ctrl+C to stop\n`);
 
+	// Mark PRD as started (records timestamp on first run)
+	await markPRDStarted(prdName);
+
 	// Check for blocked stories first
 	const blocked = await hasBlockedStories(prdName);
 	if (blocked.length > 0) {
-		console.log("⚠️  Blocked stories found:\n");
+		console.log("🚫 Blocked stories found:\n");
 		for (const story of blocked) {
 			console.log(`  ${story.id}: ${story.title}`);
 			if (story.questions.length > 0) {
 				console.log("  Questions:");
-				for (const q of story.questions) {
-					console.log(`    - ${q}`);
+				for (let i = 0; i < story.questions.length; i++) {
+					const q = story.questions[i];
+					const ans = story.answers?.[i];
+					if (ans) {
+						console.log(`    ${i + 1}. ${q}`);
+						console.log(`       Answer: ${ans}`);
+					} else {
+						console.log(`    ${i + 1}. ${q}`);
+					}
 				}
 			}
 			console.log();
 		}
 		console.log("Please resolve these before continuing.");
+		console.log(`Use 'omnidev ralph start ${prdName}' to be prompted to answer questions.`);
 		return;
 	}
 
@@ -238,10 +252,8 @@ export async function runOrchestration(prdName: string): Promise<void> {
 		if (!story) {
 			console.log("All stories complete!");
 
-			if (config.auto_archive) {
-				console.log("Auto-archiving PRD...");
-				await archivePRD(prdName);
-			}
+			// Mark PRD as completed
+			await markPRDCompleted(prdName);
 
 			// Update lastRun
 			await updateLastRun(prdName, {
@@ -250,6 +262,11 @@ export async function runOrchestration(prdName: string): Promise<void> {
 				reason: "completed",
 				summary: "All stories completed successfully",
 			});
+
+			if (config.auto_archive) {
+				console.log("Auto-archiving PRD...");
+				await archivePRD(prdName);
+			}
 
 			return;
 		}
@@ -274,6 +291,19 @@ export async function runOrchestration(prdName: string): Promise<void> {
 		console.log(output);
 		console.log(`--- Exit Code: ${exitCode} ---\n`);
 
+		// Track iteration
+		await updateMetrics(prdName, { iterations: 1 });
+
+		// Try to parse token usage from Claude Code output
+		const inputMatch = output.match(/Input:\s*([\d,]+)/i);
+		const outputMatch = output.match(/Output:\s*([\d,]+)/i);
+		if (inputMatch?.[1] || outputMatch?.[1]) {
+			await updateMetrics(prdName, {
+				inputTokens: inputMatch?.[1] ? Number.parseInt(inputMatch[1].replace(/,/g, ""), 10) : 0,
+				outputTokens: outputMatch?.[1] ? Number.parseInt(outputMatch[1].replace(/,/g, ""), 10) : 0,
+			});
+		}
+
 		// Check for completion signal
 		if (output.includes("<promise>COMPLETE</promise>")) {
 			console.log("Agent signaled completion!");
@@ -282,6 +312,9 @@ export async function runOrchestration(prdName: string): Promise<void> {
 			const allComplete = await isPRDComplete(prdName);
 
 			if (allComplete) {
+				// Mark PRD as completed
+				await markPRDCompleted(prdName);
+
 				// Update lastRun BEFORE archiving (archiving moves the PRD)
 				await updateLastRun(prdName, {
 					timestamp: new Date().toISOString(),
@@ -314,12 +347,15 @@ export async function runOrchestration(prdName: string): Promise<void> {
 		if (updatedStory?.status === "completed") {
 			console.log(`Story ${story.id} completed`);
 		} else if (updatedStory?.status === "blocked") {
-			console.log(`Story ${story.id} is blocked`);
+			console.log(`\n🚫 Story ${story.id} is blocked`);
 			if (updatedStory.questions.length > 0) {
-				console.log("Questions:");
-				for (const q of updatedStory.questions) {
-					console.log(`  - ${q}`);
+				console.log("\nQuestions to resolve:");
+				for (let i = 0; i < updatedStory.questions.length; i++) {
+					console.log(`  ${i + 1}. ${updatedStory.questions[i]}`);
 				}
+				console.log(
+					`\nRun 'omnidev ralph start ${prdName}' again to be prompted to answer these questions.`,
+				);
 			}
 
 			await updateLastRun(prdName, {

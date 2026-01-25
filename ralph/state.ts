@@ -120,6 +120,14 @@ export async function updatePRD(name: string, updates: Partial<PRD>): Promise<PR
 }
 
 /**
+ * Save a PRD directly (overwrites existing)
+ */
+export async function savePRD(name: string, prd: PRD): Promise<void> {
+	const prdPath = getPRDFilePath(name, false);
+	await writeFile(prdPath, JSON.stringify(prd, null, 2));
+}
+
+/**
  * Archive a PRD (move to completed-prds/)
  */
 export async function archivePRD(name: string): Promise<void> {
@@ -185,10 +193,80 @@ export async function updateStoryStatus(
 }
 
 /**
+ * Unblock a story by providing answers to its questions
+ */
+export async function unblockStory(
+	prdName: string,
+	storyId: string,
+	answers: string[],
+): Promise<void> {
+	const prd = await getPRD(prdName);
+
+	const story = prd.stories.find((s) => s.id === storyId);
+	if (!story) {
+		throw new Error(`Story not found: ${storyId}`);
+	}
+
+	if (story.status !== "blocked") {
+		throw new Error(`Story ${storyId} is not blocked`);
+	}
+
+	if (answers.length !== story.questions.length) {
+		throw new Error(`Expected ${story.questions.length} answers, got ${answers.length}`);
+	}
+
+	story.answers = answers;
+	story.status = "pending";
+
+	await updatePRD(prdName, { stories: prd.stories });
+}
+
+/**
  * Update the lastRun field in PRD
  */
 export async function updateLastRun(prdName: string, lastRun: LastRun): Promise<void> {
 	await updatePRD(prdName, { lastRun });
+}
+
+/**
+ * Mark a PRD as started (sets startedAt if not already set)
+ */
+export async function markPRDStarted(prdName: string): Promise<void> {
+	const prd = await getPRD(prdName);
+	if (!prd.startedAt) {
+		await updatePRD(prdName, { startedAt: new Date().toISOString() });
+	}
+}
+
+/**
+ * Mark a PRD as completed (sets completedAt)
+ */
+export async function markPRDCompleted(prdName: string): Promise<void> {
+	await updatePRD(prdName, { completedAt: new Date().toISOString() });
+}
+
+/**
+ * Update PRD metrics (accumulates values)
+ */
+export async function updateMetrics(
+	prdName: string,
+	newMetrics: { inputTokens?: number; outputTokens?: number; iterations?: number },
+): Promise<void> {
+	const prd = await getPRD(prdName);
+	const existing = prd.metrics ?? {};
+
+	const updated = {
+		inputTokens: (existing.inputTokens ?? 0) + (newMetrics.inputTokens ?? 0),
+		outputTokens: (existing.outputTokens ?? 0) + (newMetrics.outputTokens ?? 0),
+		totalTokens:
+			(existing.inputTokens ?? 0) +
+			(newMetrics.inputTokens ?? 0) +
+			(existing.outputTokens ?? 0) +
+			(newMetrics.outputTokens ?? 0),
+		iterations: (existing.iterations ?? 0) + (newMetrics.iterations ?? 0),
+	};
+
+	await updatePRD(prdName, { metrics: updated });
 }
 
 /**
@@ -252,6 +330,12 @@ export async function hasBlockedStories(prdName: string): Promise<Story[]> {
  * Check if a PRD is complete (either archived or all stories completed)
  */
 export async function isPRDCompleteOrArchived(prdName: string): Promise<boolean> {
+	// Check active PRDs first - if an active version exists, use its status
+	const activePath = getPRDFilePath(prdName, false);
+	if (existsSync(activePath)) {
+		return await isPRDComplete(prdName);
+	}
+
 	// Check if it's in the completed-prds folder
 	const completedPath = getPRDFilePath(prdName, true);
 	if (existsSync(completedPath)) {
@@ -267,12 +351,6 @@ export async function isPRDCompleteOrArchived(prdName: string): Promise<boolean>
 				return true;
 			}
 		}
-	}
-
-	// Check if it's in active PRDs and all stories are complete
-	const activePath = getPRDFilePath(prdName, false);
-	if (existsSync(activePath)) {
-		return await isPRDComplete(prdName);
 	}
 
 	return false;
