@@ -4,7 +4,7 @@
  * Generates agent prompts from PRD context for orchestration.
  */
 
-import { getProgress, getSpec } from "./state.ts";
+import { getProgress, getPRD, getSpec } from "./state.ts";
 import type { PRD, Story } from "./types.d.ts";
 
 /**
@@ -259,5 +259,113 @@ ${recentProgress || "(no progress yet)"}
 ## Codebase Patterns
 
 ${patternsText}
+`;
+}
+
+/**
+ * Generates a prompt for extracting findings from a completed PRD.
+ */
+export async function generateFindingsExtractionPrompt(prdName: string): Promise<string> {
+	const prd = await getPRD(prdName);
+	const progressContent = await getProgress(prdName);
+	let specContent = "";
+	try {
+		specContent = await getSpec(prdName);
+	} catch {
+		specContent = "(spec.md not found)";
+	}
+
+	// Count completed stories
+	const completedStories = prd.stories.filter((s) => s.status === "completed").length;
+	const totalStories = prd.stories.length;
+
+	return `# Findings Extraction Task
+
+You are extracting learnings and patterns from a completed PRD for future reference.
+
+## PRD Information
+
+**Name:** ${prd.name}
+**Description:** ${prd.description}
+**Created:** ${prd.createdAt}
+**Completed:** ${prd.completedAt ?? "N/A"}
+**Stories:** ${completedStories}/${totalStories} completed
+
+## Spec (Feature Requirements)
+
+\`\`\`markdown
+${specContent.slice(0, 5000)}${specContent.length > 5000 ? "\n...(truncated)" : ""}
+\`\`\`
+
+## Progress Log
+
+\`\`\`
+${progressContent.slice(0, 10000)}${progressContent.length > 10000 ? "\n...(truncated)" : ""}
+\`\`\`
+
+## Your Task
+
+Analyze the progress log and extract valuable patterns and learnings. Focus on:
+
+1. **Database Patterns:**
+   - Query structures and joins
+   - Table relationships discovered
+   - Indexing decisions
+
+2. **API Patterns:**
+   - Endpoint structures
+   - Response formats
+   - Error handling approaches
+
+3. **Code Patterns:**
+   - File organization conventions
+   - Naming conventions used
+   - Testing approaches
+
+4. **Business Logic Patterns:**
+   - Validation rules discovered
+   - State transitions
+   - Edge case handling
+
+5. **Learnings:**
+   - What worked well
+   - Gotchas and pitfalls encountered
+   - Recommendations for similar future work
+
+## Output Format
+
+Output ONLY a markdown section that can be appended to a findings file. Use this exact format:
+
+\`\`\`markdown
+## [DATE] ${prd.name}
+
+**Description:** ${prd.description}
+
+**Stories Completed:** ${completedStories}
+
+### Patterns Discovered
+
+- Pattern 1: Description
+- Pattern 2: Description
+- ...
+
+### Key Learnings
+
+- Learning 1: Description
+- Learning 2: Description
+- ...
+
+### Code Examples (if any notable patterns)
+
+\`\`\`language
+// Example code if relevant
+\`\`\`
+
+---
+\`\`\`
+
+Replace [DATE] with today's date in YYYY-MM-DD format.
+
+Be concise but specific. Focus on actionable patterns that would help someone working on similar features in this codebase.
 `;
 }

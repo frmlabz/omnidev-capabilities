@@ -4,96 +4,182 @@
  * Functions for persisting and retrieving PRDs, stories, and progress.
  */
 
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LastRun, PRD, Story, StoryStatus } from "./types.js";
+import type { AgentConfig, LastRun, PRD, PRDStatus, Story, StoryStatus } from "./types.js";
 
 const RALPH_DIR = ".omni/state/ralph";
-const PRDS_DIR = join(RALPH_DIR, "prds");
-const COMPLETED_PRDS_DIR = join(RALPH_DIR, "completed-prds");
+const FINDINGS_PATH = join(RALPH_DIR, "findings.md");
+
+const PRD_STATUS_DIRS: Record<PRDStatus, string> = {
+	pending: join(RALPH_DIR, "prds", "pending"),
+	testing: join(RALPH_DIR, "prds", "testing"),
+	completed: join(RALPH_DIR, "prds", "completed"),
+};
+
+const ALL_STATUSES: PRDStatus[] = ["pending", "testing", "completed"];
 
 /**
- * Get the path to a PRD directory
+ * Ensure all status directories exist
  */
-function getPRDPath(name: string, completed = false): string {
-	const baseDir = completed ? COMPLETED_PRDS_DIR : PRDS_DIR;
-	return join(process.cwd(), baseDir, name);
+export function ensureDirectories(): void {
+	for (const dir of Object.values(PRD_STATUS_DIRS)) {
+		mkdirSync(join(process.cwd(), dir), { recursive: true });
+	}
 }
 
 /**
- * Get the path to a PRD file
+ * Get the path to a PRD directory by status
  */
-function getPRDFilePath(name: string, completed = false): string {
-	return join(getPRDPath(name, completed), "prd.json");
+function getPRDPathByStatus(name: string, status: PRDStatus): string {
+	return join(process.cwd(), PRD_STATUS_DIRS[status], name);
+}
+
+/**
+ * Get the path to a PRD file by status
+ */
+function getPRDFilePathByStatus(name: string, status: PRDStatus): string {
+	return join(getPRDPathByStatus(name, status), "prd.json");
+}
+
+/**
+ * Find which status folder contains a PRD
+ * Returns null if not found
+ */
+export function findPRDLocation(name: string): PRDStatus | null {
+	for (const status of ALL_STATUSES) {
+		const prdPath = getPRDFilePathByStatus(name, status);
+		if (existsSync(prdPath)) {
+			return status;
+		}
+	}
+	return null;
+}
+
+/**
+ * Get the path to a PRD directory (finds location automatically)
+ */
+function getPRDPath(name: string): string | null {
+	const status = findPRDLocation(name);
+	if (!status) return null;
+	return getPRDPathByStatus(name, status);
+}
+
+/**
+ * Get the path to a PRD file (finds location automatically)
+ */
+function getPRDFilePath(name: string): string | null {
+	const status = findPRDLocation(name);
+	if (!status) return null;
+	return getPRDFilePathByStatus(name, status);
 }
 
 /**
  * Get the path to a progress file
  */
-function getProgressFilePath(name: string, completed = false): string {
-	return join(getPRDPath(name, completed), "progress.txt");
+function getProgressFilePath(name: string): string | null {
+	const prdPath = getPRDPath(name);
+	if (!prdPath) return null;
+	return join(prdPath, "progress.txt");
 }
 
 /**
  * Get the path to the spec file
  */
-function getSpecFilePath(name: string, completed = false): string {
-	return join(getPRDPath(name, completed), "spec.md");
+function getSpecFilePath(name: string): string | null {
+	const prdPath = getPRDPath(name);
+	if (!prdPath) return null;
+	return join(prdPath, "spec.md");
 }
 
 /**
- * List all PRDs (active and optionally completed)
+ * List PRDs by status (or all if no status specified)
  */
-export async function listPRDs(includeCompleted = false): Promise<string[]> {
-	const prdsPath = join(process.cwd(), PRDS_DIR);
-	const prdNames: string[] = [];
+export async function listPRDsByStatus(
+	status?: PRDStatus,
+): Promise<Array<{ name: string; status: PRDStatus }>> {
+	const results: Array<{ name: string; status: PRDStatus }> = [];
+	const statusesToCheck = status ? [status] : ALL_STATUSES;
 
-	// List active PRDs
-	if (existsSync(prdsPath)) {
-		const entries = readdirSync(prdsPath, { withFileTypes: true });
+	for (const s of statusesToCheck) {
+		const dirPath = join(process.cwd(), PRD_STATUS_DIRS[s]);
+		if (!existsSync(dirPath)) continue;
+
+		const entries = readdirSync(dirPath, { withFileTypes: true });
 		for (const entry of entries) {
 			if (entry.isDirectory()) {
-				prdNames.push(entry.name);
-			}
-		}
-	}
-
-	// List completed PRDs if requested
-	if (includeCompleted) {
-		const completedPath = join(process.cwd(), COMPLETED_PRDS_DIR);
-		if (existsSync(completedPath)) {
-			const entries = readdirSync(completedPath, { withFileTypes: true });
-			for (const entry of entries) {
-				if (entry.isDirectory()) {
-					prdNames.push(`${entry.name} (completed)`);
+				const prdPath = join(dirPath, entry.name, "prd.json");
+				if (existsSync(prdPath)) {
+					results.push({ name: entry.name, status: s });
 				}
 			}
 		}
 	}
 
-	return prdNames;
+	return results;
 }
 
 /**
- * Get a PRD by name
+ * List all PRDs (backward compatible - returns just names)
+ */
+export async function listPRDs(): Promise<string[]> {
+	const results: string[] = [];
+
+	for (const status of ALL_STATUSES) {
+		const dirPath = join(process.cwd(), PRD_STATUS_DIRS[status]);
+		if (!existsSync(dirPath)) continue;
+
+		const entries = readdirSync(dirPath, { withFileTypes: true });
+		for (const entry of entries) {
+			if (entry.isDirectory()) {
+				results.push(entry.name);
+			}
+		}
+	}
+
+	return results;
+}
+
+/**
+ * Move a PRD to a different status folder
+ */
+export async function movePRD(name: string, toStatus: PRDStatus): Promise<void> {
+	const currentStatus = findPRDLocation(name);
+	if (!currentStatus) {
+		throw new Error(`PRD not found: ${name}`);
+	}
+
+	if (currentStatus === toStatus) {
+		return;
+	}
+
+	const sourcePath = getPRDPathByStatus(name, currentStatus);
+	const destDir = join(process.cwd(), PRD_STATUS_DIRS[toStatus]);
+	const destPath = join(destDir, name);
+
+	mkdirSync(destDir, { recursive: true });
+
+	if (existsSync(destPath)) {
+		throw new Error(`PRD already exists in ${toStatus}: ${name}`);
+	}
+
+	renameSync(sourcePath, destPath);
+}
+
+/**
+ * Get a PRD by name (searches all status folders)
  */
 export async function getPRD(name: string): Promise<PRD> {
-	// Try active PRDs first
-	let prdPath = getPRDFilePath(name, false);
+	const prdPath = getPRDFilePath(name);
 
-	// If not found, try completed PRDs
-	if (!existsSync(prdPath)) {
-		prdPath = getPRDFilePath(name, true);
-		if (!existsSync(prdPath)) {
-			throw new Error(`PRD not found: ${name}`);
-		}
+	if (!prdPath || !existsSync(prdPath)) {
+		throw new Error(`PRD not found: ${name}`);
 	}
 
 	const content = await readFile(prdPath, "utf-8");
 	const prd = JSON.parse(content) as PRD;
 
-	// Validate PRD structure
 	if (prd.name === undefined || prd.description === undefined || prd.stories === undefined) {
 		throw new Error(`Invalid PRD structure: ${name}`);
 	}
@@ -106,14 +192,18 @@ export async function getPRD(name: string): Promise<PRD> {
  */
 export async function updatePRD(name: string, updates: Partial<PRD>): Promise<PRD> {
 	const existingPRD = await getPRD(name);
+	const prdPath = getPRDFilePath(name);
+
+	if (!prdPath) {
+		throw new Error(`PRD not found: ${name}`);
+	}
 
 	const updatedPRD: PRD = {
 		...existingPRD,
 		...updates,
-		name: existingPRD.name, // Ensure name doesn't change
+		name: existingPRD.name,
 	};
 
-	const prdPath = getPRDFilePath(name, false);
 	await writeFile(prdPath, JSON.stringify(updatedPRD, null, 2));
 
 	return updatedPRD;
@@ -123,35 +213,11 @@ export async function updatePRD(name: string, updates: Partial<PRD>): Promise<PR
  * Save a PRD directly (overwrites existing)
  */
 export async function savePRD(name: string, prd: PRD): Promise<void> {
-	const prdPath = getPRDFilePath(name, false);
-	await writeFile(prdPath, JSON.stringify(prd, null, 2));
-}
-
-/**
- * Archive a PRD (move to completed-prds/)
- */
-export async function archivePRD(name: string): Promise<void> {
-	const activePath = getPRDPath(name, false);
-
-	if (!existsSync(activePath)) {
+	const prdPath = getPRDFilePath(name);
+	if (!prdPath) {
 		throw new Error(`PRD not found: ${name}`);
 	}
-
-	// Create completed PRDs directory if it doesn't exist
-	const completedDir = join(process.cwd(), COMPLETED_PRDS_DIR);
-	mkdirSync(completedDir, { recursive: true });
-
-	// Generate archive name with timestamp
-	const timestamp = new Date().toISOString().split("T")[0];
-	const archiveName = `${timestamp}-${name}`;
-	const completedPath = getPRDPath(archiveName, true);
-
-	if (existsSync(completedPath)) {
-		throw new Error(`Archive already exists: ${archiveName}`);
-	}
-
-	const { renameSync } = await import("node:fs");
-	renameSync(activePath, completedPath);
+	await writeFile(prdPath, JSON.stringify(prd, null, 2));
 }
 
 /**
@@ -160,7 +226,6 @@ export async function archivePRD(name: string): Promise<void> {
 export async function getNextStory(prdName: string): Promise<Story | null> {
 	const prd = await getPRD(prdName);
 
-	// Find stories that are pending or in_progress, sorted by priority
 	const workableStories = prd.stories
 		.filter((story) => story.status === "pending" || story.status === "in_progress")
 		.sort((a, b) => a.priority - b.priority);
@@ -273,7 +338,11 @@ export async function updateMetrics(
  * Append content to the progress log
  */
 export async function appendProgress(prdName: string, content: string): Promise<void> {
-	const progressPath = getProgressFilePath(prdName, false);
+	const progressPath = getProgressFilePath(prdName);
+
+	if (!progressPath) {
+		throw new Error(`PRD not found: ${prdName}`);
+	}
 
 	let existingContent = "";
 	if (existsSync(progressPath)) {
@@ -288,9 +357,9 @@ export async function appendProgress(prdName: string, content: string): Promise<
  * Get the progress log content
  */
 export async function getProgress(prdName: string): Promise<string> {
-	const progressPath = getProgressFilePath(prdName, false);
+	const progressPath = getProgressFilePath(prdName);
 
-	if (!existsSync(progressPath)) {
+	if (!progressPath || !existsSync(progressPath)) {
 		return "";
 	}
 
@@ -301,9 +370,9 @@ export async function getProgress(prdName: string): Promise<string> {
  * Get the spec file content
  */
 export async function getSpec(prdName: string): Promise<string> {
-	const specPath = getSpecFilePath(prdName, false);
+	const specPath = getSpecFilePath(prdName);
 
-	if (!existsSync(specPath)) {
+	if (!specPath || !existsSync(specPath)) {
 		throw new Error(`Spec file not found for PRD: ${prdName}`);
 	}
 
@@ -327,30 +396,17 @@ export async function hasBlockedStories(prdName: string): Promise<Story[]> {
 }
 
 /**
- * Check if a PRD is complete (either archived or all stories completed)
+ * Check if a PRD is complete (completed status or all stories completed)
  */
 export async function isPRDCompleteOrArchived(prdName: string): Promise<boolean> {
-	// Check active PRDs first - if an active version exists, use its status
-	const activePath = getPRDFilePath(prdName, false);
-	if (existsSync(activePath)) {
-		return await isPRDComplete(prdName);
-	}
+	const status = findPRDLocation(prdName);
 
-	// Check if it's in the completed-prds folder
-	const completedPath = getPRDFilePath(prdName, true);
-	if (existsSync(completedPath)) {
+	if (status === "completed") {
 		return true;
 	}
 
-	// Also check for date-prefixed archives (e.g., "2026-01-10-feature")
-	const completedDir = join(process.cwd(), COMPLETED_PRDS_DIR);
-	if (existsSync(completedDir)) {
-		const entries = readdirSync(completedDir, { withFileTypes: true });
-		for (const entry of entries) {
-			if (entry.isDirectory() && entry.name.endsWith(`-${prdName}`)) {
-				return true;
-			}
-		}
+	if (status === "pending" || status === "testing") {
+		return await isPRDComplete(prdName);
 	}
 
 	return false;
@@ -358,7 +414,6 @@ export async function isPRDCompleteOrArchived(prdName: string): Promise<boolean>
 
 /**
  * Get unmet dependencies for a PRD
- * Returns array of dependency names that are not yet complete
  */
 export async function getUnmetDependencies(prdName: string): Promise<string[]> {
 	const prd = await getPRD(prdName);
@@ -397,6 +452,7 @@ export async function canStartPRD(
  */
 export interface DependencyInfo {
 	name: string;
+	status: PRDStatus;
 	dependencies: string[];
 	isComplete: boolean;
 	canStart: boolean;
@@ -407,10 +463,10 @@ export interface DependencyInfo {
  * Build dependency graph for all active PRDs
  */
 export async function buildDependencyGraph(): Promise<DependencyInfo[]> {
-	const prdNames = await listPRDs(false);
+	const prds = await listPRDsByStatus();
 	const graph: DependencyInfo[] = [];
 
-	for (const name of prdNames) {
+	for (const { name, status } of prds) {
 		try {
 			const prd = await getPRD(name);
 			const isComplete = await isPRDComplete(name);
@@ -418,6 +474,7 @@ export async function buildDependencyGraph(): Promise<DependencyInfo[]> {
 
 			graph.push({
 				name,
+				status,
 				dependencies: prd.dependencies ?? [],
 				isComplete,
 				canStart,
@@ -429,4 +486,216 @@ export async function buildDependencyGraph(): Promise<DependencyInfo[]> {
 	}
 
 	return graph;
+}
+
+/**
+ * Extract findings from a PRD's progress.txt
+ */
+export async function extractFindings(prdName: string): Promise<string> {
+	const progressContent = await getProgress(prdName);
+	if (!progressContent) {
+		return "";
+	}
+
+	const findings: string[] = [];
+
+	// Extract patterns from "## Codebase Patterns" section
+	const patternsMatch = progressContent.match(
+		/## Codebase Patterns\s*\n([\s\S]*?)(?=\n---|\n## (?!Codebase))/,
+	);
+	const patterns = patternsMatch?.[1]?.trim();
+
+	// Extract learnings from "**Learnings for future iterations:**" sections
+	const learningsRegex =
+		/\*\*Learnings for future iterations:\*\*\s*\n([\s\S]*?)(?=\n---|\n## |\n\*\*|$)/g;
+	const learnings: string[] = [];
+	let match = learningsRegex.exec(progressContent);
+	while (match !== null) {
+		const learning = match[1]?.trim();
+		if (learning) {
+			learnings.push(learning);
+		}
+		match = learningsRegex.exec(progressContent);
+	}
+
+	if (patterns || learnings.length > 0) {
+		const timestamp = new Date().toISOString().split("T")[0];
+		findings.push(`## [${timestamp}] ${prdName}\n`);
+
+		if (patterns) {
+			findings.push("### Patterns");
+			findings.push(patterns);
+			findings.push("");
+		}
+
+		if (learnings.length > 0) {
+			findings.push("### Learnings");
+			for (const learning of learnings) {
+				findings.push(learning);
+			}
+			findings.push("");
+		}
+
+		findings.push("---\n");
+	}
+
+	return findings.join("\n");
+}
+
+/**
+ * Append findings to the global findings.md file
+ */
+export async function appendToFindings(content: string): Promise<void> {
+	if (!content.trim()) return;
+
+	const findingsPath = join(process.cwd(), FINDINGS_PATH);
+	let existingContent = "";
+
+	if (existsSync(findingsPath)) {
+		existingContent = await readFile(findingsPath, "utf-8");
+	} else {
+		existingContent = "# Ralph Findings\n\n";
+		mkdirSync(join(process.cwd(), RALPH_DIR), { recursive: true });
+	}
+
+	await writeFile(findingsPath, existingContent + content);
+}
+
+/**
+ * Extract findings from a PRD and append to findings.md
+ * If agentConfig is provided, uses LLM to extract findings.
+ * Otherwise falls back to regex-based extraction.
+ */
+export async function extractAndSaveFindings(
+	prdName: string,
+	agentConfig?: AgentConfig,
+	runAgentFn?: (
+		prompt: string,
+		config: AgentConfig,
+	) => Promise<{ output: string; exitCode: number }>,
+): Promise<void> {
+	let findings: string;
+
+	if (agentConfig && runAgentFn) {
+		// Use LLM-based extraction
+		const { generateFindingsExtractionPrompt } = await import("./prompt.js");
+		const prompt = await generateFindingsExtractionPrompt(prdName);
+		const { output } = await runAgentFn(prompt, agentConfig);
+
+		// Extract markdown from output (agent may include extra text)
+		const markdownMatch = output.match(/## \[\d{4}-\d{2}-\d{2}\][\s\S]*?(?=\n## \[|$)/);
+		findings = markdownMatch ? `${markdownMatch[0]}\n\n` : output;
+	} else {
+		// Fall back to regex-based extraction
+		findings = await extractFindings(prdName);
+	}
+
+	await appendToFindings(findings);
+}
+
+/**
+ * Migrate from old folder structure to new status-based structure
+ */
+export async function migrateToStatusFolders(): Promise<{ migrated: number; errors: string[] }> {
+	const oldPrdsDir = join(process.cwd(), RALPH_DIR, "prds");
+	const oldCompletedDir = join(process.cwd(), RALPH_DIR, "completed-prds");
+
+	const migrated: string[] = [];
+	const errors: string[] = [];
+
+	ensureDirectories();
+
+	// Check if migration is needed by looking for PRDs directly in prds/ (not in status subfolders)
+	if (existsSync(oldPrdsDir)) {
+		const entries = readdirSync(oldPrdsDir, { withFileTypes: true });
+		for (const entry of entries) {
+			if (!entry.isDirectory()) continue;
+			if (["pending", "testing", "completed"].includes(entry.name)) continue;
+
+			const prdJsonPath = join(oldPrdsDir, entry.name, "prd.json");
+			if (!existsSync(prdJsonPath)) continue;
+
+			const destPath = join(process.cwd(), PRD_STATUS_DIRS.pending, entry.name);
+			if (existsSync(destPath)) {
+				errors.push(`Cannot migrate ${entry.name}: already exists in pending`);
+				continue;
+			}
+
+			try {
+				renameSync(join(oldPrdsDir, entry.name), destPath);
+				migrated.push(entry.name);
+			} catch (e) {
+				errors.push(`Failed to migrate ${entry.name}: ${e}`);
+			}
+		}
+	}
+
+	// Migrate completed-prds to completed (stripping date prefix)
+	if (existsSync(oldCompletedDir)) {
+		const entries = readdirSync(oldCompletedDir, { withFileTypes: true });
+		for (const entry of entries) {
+			if (!entry.isDirectory()) continue;
+
+			// Strip date prefix (YYYY-MM-DD-)
+			const match = entry.name.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
+			const baseName = match?.[1] ?? entry.name;
+
+			const destPath = join(process.cwd(), PRD_STATUS_DIRS.completed, baseName);
+			if (existsSync(destPath)) {
+				errors.push(`Cannot migrate ${entry.name}: ${baseName} already exists in completed`);
+				continue;
+			}
+
+			try {
+				renameSync(join(oldCompletedDir, entry.name), destPath);
+				migrated.push(`${entry.name} -> completed/${baseName}`);
+			} catch (e) {
+				errors.push(`Failed to migrate ${entry.name}: ${e}`);
+			}
+		}
+
+		// Remove old completed-prds directory if empty
+		try {
+			const remaining = readdirSync(oldCompletedDir);
+			if (remaining.length === 0) {
+				rmSync(oldCompletedDir, { recursive: true });
+			}
+		} catch {
+			// Ignore
+		}
+	}
+
+	return { migrated: migrated.length, errors };
+}
+
+/**
+ * Check if migration is needed
+ */
+export function needsMigration(): boolean {
+	const oldPrdsDir = join(process.cwd(), RALPH_DIR, "prds");
+	const oldCompletedDir = join(process.cwd(), RALPH_DIR, "completed-prds");
+
+	// Check for PRDs directly in prds/ (not in status subfolders)
+	if (existsSync(oldPrdsDir)) {
+		const entries = readdirSync(oldPrdsDir, { withFileTypes: true });
+		for (const entry of entries) {
+			if (!entry.isDirectory()) continue;
+			if (["pending", "testing", "completed"].includes(entry.name)) continue;
+
+			const prdJsonPath = join(oldPrdsDir, entry.name, "prd.json");
+			if (existsSync(prdJsonPath)) {
+				return true;
+			}
+		}
+	}
+
+	// Check for completed-prds directory
+	if (existsSync(oldCompletedDir)) {
+		const entries = readdirSync(oldCompletedDir, { withFileTypes: true });
+		if (entries.some((e) => e.isDirectory())) {
+			return true;
+		}
+	}
+
+	return false;
 }

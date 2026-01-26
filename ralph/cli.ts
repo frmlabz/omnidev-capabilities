@@ -6,22 +6,43 @@
  * - status: Detailed status of one PRD
  * - start: Start orchestration (Ctrl+C to stop)
  * - progress: View progress log
+ * - prd: PRD management commands
+ * - spec: Spec file commands
+ * - migrate: Migrate to new folder structure
+ * - complete: Complete a PRD (extract findings via LLM and move to completed)
  */
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { command, routes } from "@omnidev-ai/capability";
 
-// TODO: import { debug } from "@omnidev-ai/capability" once package is redeployed
 const debug = (_msg: string, _ctx?: Record<string, unknown>) => {};
-import { buildDependencyGraph, canStartPRD, unblockStory } from "./state.js";
-import type { PRD, Story } from "./types";
+import {
+	buildDependencyGraph,
+	canStartPRD,
+	extractAndSaveFindings,
+	findPRDLocation,
+	getProgress,
+	getSpec,
+	listPRDsByStatus,
+	migrateToStatusFolders,
+	movePRD,
+	needsMigration,
+	unblockStory,
+} from "./state.js";
+import type { PRD, PRDStatus, Story } from "./types";
 
 const RALPH_DIR = ".omni/state/ralph";
 const PRDS_DIR = join(RALPH_DIR, "prds");
+
+const STATUS_EMOJI: Record<PRDStatus, string> = {
+	pending: "🟡",
+	testing: "🔵",
+	completed: "✅",
+};
 
 /**
  * Format duration between two ISO timestamps as human-readable string
@@ -40,120 +61,6 @@ function formatDuration(startIso: string, endIso?: string): string {
 	if (hours > 0) return `${hours}h ${minutes % 60}m`;
 	if (minutes > 0) return `${minutes}m`;
 	return `${seconds}s`;
-}
-
-/**
- * List all PRDs with status summary and dependency information
- */
-export async function runList(): Promise<void> {
-	debug("runList called", { cwd: process.cwd(), PRDS_DIR });
-
-	if (!existsSync(PRDS_DIR)) {
-		debug("PRDS_DIR does not exist", { PRDS_DIR });
-		console.log("No PRDs found.");
-		console.log("\nCreate a PRD using the /prd skill.");
-		return;
-	}
-
-	const prdDirs = readdirSync(PRDS_DIR, { withFileTypes: true })
-		.filter((d) => d.isDirectory())
-		.map((d) => d.name);
-
-	debug("Found PRD directories", { prdDirs });
-
-	if (prdDirs.length === 0) {
-		console.log("No PRDs found.");
-		console.log("\nCreate a PRD using the /prd skill.");
-		return;
-	}
-
-	// Build dependency graph for all PRDs
-	const depGraph = await buildDependencyGraph();
-
-	console.log("\n=== Ralph PRDs ===\n");
-
-	// Sort: runnable PRDs first, then by name
-	const sortedPrds = [...prdDirs].sort((a, b) => {
-		const aInfo = depGraph.find((d) => d.name === a);
-		const bInfo = depGraph.find((d) => d.name === b);
-		// Runnable PRDs come first
-		if (aInfo?.canStart && !bInfo?.canStart) return -1;
-		if (!aInfo?.canStart && bInfo?.canStart) return 1;
-		return a.localeCompare(b);
-	});
-
-	for (const prdName of sortedPrds) {
-		const prdPath = join(PRDS_DIR, prdName, "prd.json");
-		if (!existsSync(prdPath)) continue;
-
-		try {
-			const prd: PRD = JSON.parse(await readFile(prdPath, "utf-8"));
-			const depInfo = depGraph.find((d) => d.name === prdName);
-			const total = prd.stories.length;
-			const completed = prd.stories.filter((s) => s.status === "completed").length;
-			const inProgress = prd.stories.filter((s) => s.status === "in_progress").length;
-			const blocked = prd.stories.filter((s) => s.status === "blocked").length;
-
-			const statusParts: string[] = [];
-			if (completed > 0) statusParts.push(`${completed} done`);
-			if (inProgress > 0) statusParts.push(`${inProgress} in progress`);
-			if (blocked > 0) statusParts.push(`${blocked} blocked`);
-
-			const statusStr = statusParts.length > 0 ? statusParts.join(", ") : "not started";
-			const progressBar = total > 0 ? `[${completed}/${total}]` : "[0/0]";
-
-			// Show runnable status - prioritize showing blocked status
-			let runnableStatus: string;
-			if (blocked > 0) {
-				runnableStatus = "🚫"; // Show blocked if any stories are blocked
-			} else if (depInfo?.isComplete) {
-				runnableStatus = "✅";
-			} else if (depInfo?.canStart) {
-				runnableStatus = "🟢";
-			} else {
-				runnableStatus = "🔒";
-			}
-
-			console.log(`${runnableStatus} ${prd.name} ${progressBar} - ${statusStr}`);
-			console.log(`  ${prd.description}`);
-
-			// Show dependencies if any
-			const deps = prd.dependencies ?? [];
-			if (deps.length > 0) {
-				const unmet = depInfo?.unmetDependencies ?? [];
-				const depDisplay = deps
-					.map((d) => (unmet.includes(d) ? `${d} (pending)` : `${d} ✓`))
-					.join(", ");
-				console.log(`  Dependencies: ${depDisplay}`);
-			}
-
-			// Show timing if started
-			if (prd.startedAt) {
-				const duration = formatDuration(prd.startedAt, prd.completedAt);
-				const timingParts: string[] = [];
-				if (prd.completedAt) {
-					timingParts.push(`completed in ${duration}`);
-				} else {
-					timingParts.push(`in progress for ${duration}`);
-				}
-				if (prd.metrics?.iterations) {
-					timingParts.push(`${prd.metrics.iterations} iterations`);
-				}
-				if (prd.metrics?.totalTokens) {
-					timingParts.push(`${prd.metrics.totalTokens.toLocaleString()} tokens`);
-				}
-				console.log(`  Time: ${timingParts.join(", ")}`);
-			}
-			console.log();
-		} catch {
-			console.log(`${prdName} - (invalid prd.json)`);
-		}
-	}
-
-	// Show legend
-	console.log(
-		"Legend: 🟢 Ready to start | 🚫 Has blocked stories | 🔒 Waiting on dependencies | ✅ Complete",
-	);
 }
 
 /**
@@ -185,27 +92,148 @@ async function promptForAnswers(prdName: string, story: Story): Promise<void> {
 }
 
 /**
+ * List all PRDs with status summary and dependency information
+ */
+export async function runList(flags: Record<string, unknown>): Promise<void> {
+	debug("runList called", { cwd: process.cwd(), PRDS_DIR });
+
+	// Check for migration first
+	if (needsMigration()) {
+		console.log("⚠️  Old folder structure detected. Run 'omnidev ralph migrate' first.\n");
+	}
+
+	const statusFilter =
+		typeof flags["status"] === "string" ? (flags["status"] as PRDStatus) : undefined;
+	const prds = await listPRDsByStatus(statusFilter);
+
+	if (prds.length === 0) {
+		console.log("No PRDs found.");
+		console.log("\nCreate a PRD using the /prd skill.");
+		return;
+	}
+
+	// Build dependency graph for all PRDs
+	const depGraph = await buildDependencyGraph();
+
+	console.log("\n=== Ralph PRDs ===\n");
+
+	// Sort: pending first (runnable), then testing, completed
+	const statusOrder: Record<PRDStatus, number> = { pending: 0, testing: 1, completed: 2 };
+	const sortedPrds = [...prds].sort((a, b) => {
+		const statusDiff = statusOrder[a.status] - statusOrder[b.status];
+		if (statusDiff !== 0) return statusDiff;
+
+		// Within pending, sort by runnability
+		if (a.status === "pending") {
+			const aInfo = depGraph.find((d) => d.name === a.name);
+			const bInfo = depGraph.find((d) => d.name === b.name);
+			if (aInfo?.canStart && !bInfo?.canStart) return -1;
+			if (!aInfo?.canStart && bInfo?.canStart) return 1;
+		}
+
+		return a.name.localeCompare(b.name);
+	});
+
+	for (const { name, status } of sortedPrds) {
+		const prdDir = join(PRDS_DIR, status, name);
+		const prdPath = join(prdDir, "prd.json");
+		if (!existsSync(prdPath)) continue;
+
+		try {
+			const prd: PRD = JSON.parse(await readFile(prdPath, "utf-8"));
+			const depInfo = depGraph.find((d) => d.name === name);
+			const total = prd.stories.length;
+			const completed = prd.stories.filter((s) => s.status === "completed").length;
+			const inProgress = prd.stories.filter((s) => s.status === "in_progress").length;
+			const blocked = prd.stories.filter((s) => s.status === "blocked").length;
+
+			const statusParts: string[] = [];
+			if (completed > 0) statusParts.push(`${completed} done`);
+			if (inProgress > 0) statusParts.push(`${inProgress} in progress`);
+			if (blocked > 0) statusParts.push(`${blocked} blocked`);
+
+			const statusStr = statusParts.length > 0 ? statusParts.join(", ") : "not started";
+			const progressBar = total > 0 ? `[${completed}/${total}]` : "[0/0]";
+
+			// Show status emoji and runnable indicator
+			const statusEmoji = STATUS_EMOJI[status];
+			let runnableIndicator = "";
+			if (status === "pending") {
+				if (blocked > 0) {
+					runnableIndicator = " 🚫";
+				} else if (depInfo?.canStart) {
+					runnableIndicator = " 🟢";
+				} else {
+					runnableIndicator = " 🔒";
+				}
+			}
+
+			console.log(`${statusEmoji} ${prd.name} ${progressBar} - ${statusStr}${runnableIndicator}`);
+			console.log(`  ${prd.description}`);
+
+			// Show dependencies if any (only for pending)
+			if (status === "pending") {
+				const deps = prd.dependencies ?? [];
+				if (deps.length > 0) {
+					const unmet = depInfo?.unmetDependencies ?? [];
+					const depDisplay = deps
+						.map((d) => (unmet.includes(d) ? `${d} (pending)` : `${d} ✓`))
+						.join(", ");
+					console.log(`  Dependencies: ${depDisplay}`);
+				}
+			}
+
+			// Show timing if started
+			if (prd.startedAt) {
+				const duration = formatDuration(prd.startedAt, prd.completedAt);
+				const timingParts: string[] = [];
+				if (prd.completedAt) {
+					timingParts.push(`completed in ${duration}`);
+				} else {
+					timingParts.push(`in progress for ${duration}`);
+				}
+				if (prd.metrics?.iterations) {
+					timingParts.push(`${prd.metrics.iterations} iterations`);
+				}
+				if (prd.metrics?.totalTokens) {
+					timingParts.push(`${prd.metrics.totalTokens.toLocaleString()} tokens`);
+				}
+				console.log(`  Time: ${timingParts.join(", ")}`);
+			}
+			console.log();
+		} catch {
+			console.log(`${name} - (invalid prd.json)`);
+		}
+	}
+
+	console.log(
+		"Legend: 🟡 Pending | 🔵 Testing | ✅ Completed | 🟢 Ready | 🔒 Blocked | 🚫 Has blocked stories",
+	);
+}
+
+/**
  * Show detailed status of one PRD
  */
 export async function runStatus(_flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
 	if (!prdName || typeof prdName !== "string") {
-		// If no PRD specified, list them
-		await runList();
+		await runList({});
 		return;
 	}
 
-	const prdPath = join(PRDS_DIR, prdName, "prd.json");
-	if (!existsSync(prdPath)) {
+	const status = findPRDLocation(prdName);
+	if (!status) {
 		console.error(`PRD not found: ${prdName}`);
 		console.error(`\nAvailable PRDs:`);
-		await runList();
+		await runList({});
 		return;
 	}
 
+	const prdPath = join(PRDS_DIR, status, prdName, "prd.json");
 	const prd: PRD = JSON.parse(await readFile(prdPath, "utf-8"));
 	const { canStart, unmetDependencies } = await canStartPRD(prdName);
 
 	console.log(`\n=== ${prd.name} ===`);
+	console.log(`Status: ${STATUS_EMOJI[status]} ${status}`);
 	console.log(`Description: ${prd.description}`);
 	console.log(`Created: ${prd.createdAt}`);
 
@@ -240,16 +268,18 @@ export async function runStatus(_flags: Record<string, unknown>, prdName?: unkno
 	if (deps.length > 0) {
 		console.log(`\nDependencies:`);
 		for (const dep of deps) {
-			const status = unmetDependencies.includes(dep) ? "⏳ pending" : "✅ complete";
-			console.log(`  - ${dep}: ${status}`);
+			const depStatus = unmetDependencies.includes(dep) ? "⏳ pending" : "✅ complete";
+			console.log(`  - ${dep}: ${depStatus}`);
 		}
 	}
 
-	// Show runnable status
-	if (!canStart) {
-		console.log(`\n🔒 Cannot start - waiting on: ${unmetDependencies.join(", ")}`);
-	} else {
-		console.log(`\n🟢 Ready to start`);
+	// Show runnable status (only for pending)
+	if (status === "pending") {
+		if (!canStart) {
+			console.log(`\n🔒 Cannot start - waiting on: ${unmetDependencies.join(", ")}`);
+		} else {
+			console.log(`\n🟢 Ready to start`);
+		}
 	}
 
 	// Show last run info if available
@@ -317,7 +347,7 @@ export async function runStatus(_flags: Record<string, unknown>, prdName?: unkno
 	}
 
 	// Check for spec file
-	const specPath = join(PRDS_DIR, prdName, "spec.md");
+	const specPath = join(PRDS_DIR, status, prdName, "spec.md");
 	if (existsSync(specPath)) {
 		console.log(`\nSpec: ${specPath}`);
 	} else {
@@ -332,13 +362,23 @@ export async function runStart(_flags: Record<string, unknown>, prdName?: unknow
 	if (!prdName || typeof prdName !== "string") {
 		console.error("Usage: omnidev ralph start <prd-name>");
 		console.error("\nAvailable PRDs:");
-		await runList();
+		await runList({});
 		process.exit(1);
 	}
 
-	const prdPath = join(PRDS_DIR, prdName, "prd.json");
-	if (!existsSync(prdPath)) {
+	const status = findPRDLocation(prdName);
+	if (!status) {
 		console.error(`PRD not found: ${prdName}`);
+		process.exit(1);
+	}
+
+	if (status !== "pending") {
+		console.error(`\n⚠️  PRD "${prdName}" is in ${status} status.`);
+		console.error(`Only PRDs in 'pending' status can be started.`);
+		if (status === "testing") {
+			console.error(`\nTo continue work, move it back to pending:`);
+			console.error(`  omnidev ralph prd ${prdName} --move pending`);
+		}
 		process.exit(1);
 	}
 
@@ -413,17 +453,15 @@ export async function runProgress(
 	if (!prdName || typeof prdName !== "string") {
 		console.error("Usage: omnidev ralph progress <prd-name>");
 		console.error("\nAvailable PRDs:");
-		await runList();
+		await runList({});
 		process.exit(1);
 	}
 
-	const progressPath = join(PRDS_DIR, prdName, "progress.txt");
-	if (!existsSync(progressPath)) {
+	const content = await getProgress(prdName);
+	if (!content) {
 		console.log(`No progress log found for: ${prdName}`);
 		return;
 	}
-
-	const content = await readFile(progressPath, "utf-8");
 
 	const tail = typeof flags["tail"] === "number" ? flags["tail"] : undefined;
 	if (tail) {
@@ -434,9 +472,157 @@ export async function runProgress(
 	}
 }
 
+/**
+ * PRD management command
+ */
+export async function runPrd(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
+	// If no name, list PRDs
+	if (!prdName || typeof prdName !== "string") {
+		await runList(flags);
+		return;
+	}
+
+	const moveToStatus = flags["move"] as PRDStatus | undefined;
+	const edit = flags["edit"] as boolean | undefined;
+	const extractFindingsFlag = flags["extract-findings"] as boolean | undefined;
+
+	// Handle --move
+	if (moveToStatus) {
+		const validStatuses: PRDStatus[] = ["pending", "testing", "completed"];
+		if (!validStatuses.includes(moveToStatus)) {
+			console.error(`Invalid status: ${moveToStatus}`);
+			console.error(`Valid statuses: ${validStatuses.join(", ")}`);
+			process.exit(1);
+		}
+
+		const currentStatus = findPRDLocation(prdName);
+		if (!currentStatus) {
+			console.error(`PRD not found: ${prdName}`);
+			process.exit(1);
+		}
+
+		if (currentStatus === moveToStatus) {
+			console.log(`PRD "${prdName}" is already in ${moveToStatus}`);
+			return;
+		}
+
+		// If moving to completed, extract findings first
+		if (moveToStatus === "completed") {
+			console.log("Extracting findings...");
+			await extractAndSaveFindings(prdName);
+		}
+
+		await movePRD(prdName, moveToStatus);
+		console.log(`Moved "${prdName}" from ${currentStatus} to ${moveToStatus}`);
+		return;
+	}
+
+	// Handle --extract-findings
+	if (extractFindingsFlag) {
+		const status = findPRDLocation(prdName);
+		if (!status) {
+			console.error(`PRD not found: ${prdName}`);
+			process.exit(1);
+		}
+
+		console.log(`Extracting findings from "${prdName}"...`);
+		await extractAndSaveFindings(prdName);
+		console.log("Findings extracted to .omni/state/ralph/findings.md");
+		return;
+	}
+
+	// Handle --edit (placeholder - would launch editor)
+	if (edit) {
+		console.log(`Edit mode for "${prdName}" not yet implemented.`);
+		console.log("Use your preferred editor to modify the PRD files.");
+		return;
+	}
+
+	// Default: show PRD details
+	await runStatus({}, prdName);
+}
+
+/**
+ * Spec file command
+ */
+export async function runSpec(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
+	if (!prdName || typeof prdName !== "string") {
+		console.error("Usage: omnidev ralph spec <prd-name>");
+		console.error("\nAvailable PRDs:");
+		await runList({});
+		process.exit(1);
+	}
+
+	const status = findPRDLocation(prdName);
+	if (!status) {
+		console.error(`PRD not found: ${prdName}`);
+		process.exit(1);
+	}
+
+	const edit = flags["edit"] as boolean | undefined;
+
+	// Handle --edit (placeholder)
+	if (edit) {
+		console.log(`Edit mode for spec not yet implemented.`);
+		console.log("Use your preferred editor to modify the spec file.");
+		return;
+	}
+
+	// Default: show spec content
+	try {
+		const content = await getSpec(prdName);
+		console.log(content);
+	} catch (e) {
+		console.error(`Error reading spec: ${e}`);
+		process.exit(1);
+	}
+}
+
+/**
+ * Migration command
+ */
+export async function runMigrate(): Promise<void> {
+	if (!needsMigration()) {
+		console.log("No migration needed. Already using new folder structure.");
+		return;
+	}
+
+	console.log("Migrating to new folder structure...\n");
+	console.log("New structure:");
+	console.log("  .omni/state/ralph/prds/pending/   <- active development");
+	console.log("  .omni/state/ralph/prds/testing/   <- awaiting verification");
+	console.log("  .omni/state/ralph/prds/completed/ <- verified, findings extracted\n");
+
+	const { migrated, errors } = await migrateToStatusFolders();
+
+	if (migrated > 0) {
+		console.log(`✅ Migrated ${migrated} PRD(s)`);
+	}
+
+	if (errors.length > 0) {
+		console.log(`\n⚠️  Errors:`);
+		for (const error of errors) {
+			console.log(`  - ${error}`);
+		}
+	}
+
+	if (migrated === 0 && errors.length === 0) {
+		console.log("No PRDs to migrate.");
+	}
+}
+
 // Build commands
 const listCommand = command({
 	brief: "List all PRDs with status summary",
+	parameters: {
+		flags: {
+			status: {
+				kind: "string",
+				brief: "Filter by status (pending, testing, completed, archived)",
+				optional: true,
+			},
+		},
+	},
 	func: runList,
 });
 
@@ -475,6 +661,128 @@ const progressCommand = command({
 	func: runProgress,
 });
 
+const prdCommand = command({
+	brief: "PRD management (view, move, extract findings)",
+	parameters: {
+		flags: {
+			move: {
+				kind: "string",
+				brief: "Move PRD to status (pending, testing, completed, archived)",
+				optional: true,
+			},
+			edit: {
+				kind: "boolean",
+				brief: "Launch AI editor for PRD",
+				optional: true,
+			},
+			"extract-findings": {
+				kind: "boolean",
+				brief: "Extract findings from PRD to findings.md",
+				optional: true,
+			},
+		},
+		positional: [
+			{ brief: "PRD name (optional - lists PRDs if omitted)", kind: "string", optional: true },
+		],
+	},
+	func: runPrd,
+});
+
+const specCommand = command({
+	brief: "View or edit spec file",
+	parameters: {
+		flags: {
+			edit: {
+				kind: "boolean",
+				brief: "Launch AI editor for spec",
+				optional: true,
+			},
+		},
+		positional: [{ brief: "PRD name", kind: "string" }],
+	},
+	func: runSpec,
+});
+
+const migrateCommand = command({
+	brief: "Migrate to new folder structure (pending/testing/completed)",
+	func: runMigrate,
+});
+
+/**
+ * Complete a PRD - extract findings via LLM and move to completed
+ */
+export async function runComplete(
+	_flags: Record<string, unknown>,
+	prdName?: unknown,
+): Promise<void> {
+	if (!prdName || typeof prdName !== "string") {
+		console.error("Usage: omnidev ralph complete <prd-name>");
+		console.error("\nAvailable PRDs in testing:");
+		const prds = await listPRDsByStatus("testing");
+		if (prds.length === 0) {
+			console.log("  (none)");
+		} else {
+			for (const { name } of prds) {
+				console.log(`  - ${name}`);
+			}
+		}
+		process.exit(1);
+	}
+
+	const status = findPRDLocation(prdName);
+	if (!status) {
+		console.error(`PRD not found: ${prdName}`);
+		process.exit(1);
+	}
+
+	if (status !== "testing") {
+		console.error(`\n⚠️  PRD "${prdName}" is in ${status} status.`);
+		console.error(`Only PRDs in 'testing' status can be completed.`);
+		if (status === "pending") {
+			console.error(`\nFirst finish all stories and move to testing:`);
+			console.error(`  omnidev ralph start ${prdName}`);
+		}
+		process.exit(1);
+	}
+
+	console.log(`Completing PRD: ${prdName}`);
+
+	// Load config and run LLM to extract findings
+	const { loadRalphConfig, runAgent } = await import("./orchestrator.js");
+
+	try {
+		const config = await loadRalphConfig();
+		const agentConfig = config.agents[config.default_agent];
+
+		if (!agentConfig) {
+			console.error(`Agent '${config.default_agent}' not found in config.`);
+			process.exit(1);
+		}
+
+		console.log("Extracting findings via LLM...");
+		await extractAndSaveFindings(prdName, agentConfig, runAgent);
+		console.log("Findings saved to .omni/state/ralph/findings.md");
+
+		console.log("Moving PRD to completed...");
+		await movePRD(prdName, "completed");
+
+		console.log(`\n✅ PRD "${prdName}" completed!`);
+		console.log(`\nFindings have been extracted and saved.`);
+		console.log(`View findings: cat .omni/state/ralph/findings.md`);
+	} catch (error) {
+		console.error(`\nError completing PRD: ${error}`);
+		process.exit(1);
+	}
+}
+
+const completeCommand = command({
+	brief: "Complete a PRD - extract findings via LLM and move to completed",
+	parameters: {
+		positional: [{ brief: "PRD name", kind: "string" }],
+	},
+	func: runComplete,
+});
+
 // Export route map
 export const ralphRoutes = routes({
 	brief: "Ralph AI orchestrator",
@@ -483,5 +791,9 @@ export const ralphRoutes = routes({
 		status: statusCommand,
 		start: startCommand,
 		progress: progressCommand,
+		prd: prdCommand,
+		spec: specCommand,
+		migrate: migrateCommand,
+		complete: completeCommand,
 	},
 });

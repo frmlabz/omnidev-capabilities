@@ -10,13 +10,14 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { generatePrompt } from "./prompt.ts";
 import {
-	archivePRD,
+	extractAndSaveFindings,
 	getNextStory,
 	getPRD,
 	hasBlockedStories,
 	isPRDComplete,
 	markPRDCompleted,
 	markPRDStarted,
+	movePRD,
 	updateLastRun,
 	updateMetrics,
 	updateStoryStatus,
@@ -255,18 +256,24 @@ export async function runOrchestration(prdName: string): Promise<void> {
 			// Mark PRD as completed
 			await markPRDCompleted(prdName);
 
+			// Extract findings and move to testing
+			console.log("Extracting findings...");
+			await extractAndSaveFindings(prdName);
+
+			console.log("Moving PRD to testing...");
+			await movePRD(prdName, "testing");
+
 			// Update lastRun
 			await updateLastRun(prdName, {
 				timestamp: new Date().toISOString(),
 				storyId: "ALL",
 				reason: "completed",
-				summary: "All stories completed successfully",
+				summary: "All stories completed. PRD moved to testing for verification.",
 			});
 
-			if (config.auto_archive) {
-				console.log("Auto-archiving PRD...");
-				await archivePRD(prdName);
-			}
+			console.log("\nPRD moved to testing. Run manual verification, then:");
+			console.log(`  omnidev ralph prd ${prdName} --move completed  # if verified`);
+			console.log(`  omnidev ralph prd ${prdName} --move pending    # if issues found`);
 
 			return;
 		}
@@ -308,25 +315,30 @@ export async function runOrchestration(prdName: string): Promise<void> {
 		if (output.includes("<promise>COMPLETE</promise>")) {
 			console.log("Agent signaled completion!");
 
-			// Check if ALL stories are actually completed before archiving
+			// Check if ALL stories are actually completed
 			const allComplete = await isPRDComplete(prdName);
 
 			if (allComplete) {
 				// Mark PRD as completed
 				await markPRDCompleted(prdName);
 
-				// Update lastRun BEFORE archiving (archiving moves the PRD)
+				// Extract findings and move to testing
+				console.log("Extracting findings...");
+				await extractAndSaveFindings(prdName);
+
+				console.log("Moving PRD to testing...");
+				await movePRD(prdName, "testing");
+
 				await updateLastRun(prdName, {
 					timestamp: new Date().toISOString(),
 					storyId: "ALL",
 					reason: "completed",
-					summary: "All stories completed successfully",
+					summary: "All stories completed. PRD moved to testing for verification.",
 				});
 
-				if (config.auto_archive) {
-					console.log("Auto-archiving PRD...");
-					await archivePRD(prdName);
-				}
+				console.log("\nPRD moved to testing. Run manual verification, then:");
+				console.log(`  omnidev ralph prd ${prdName} --move completed  # if verified`);
+				console.log(`  omnidev ralph prd ${prdName} --move pending    # if issues found`);
 			} else {
 				// Agent signaled completion but there are still pending stories
 				await updateLastRun(prdName, {

@@ -10,6 +10,11 @@
 export type StoryStatus = "pending" | "in_progress" | "completed" | "blocked";
 
 /**
+ * PRD status in the workflow lifecycle
+ */
+export type PRDStatus = "pending" | "testing" | "completed";
+
+/**
  * Story definition - a chunk of work within a PRD
  */
 export interface Story {
@@ -71,8 +76,6 @@ export interface PRD {
 	startedAt?: string;
 	/** ISO timestamp when PRD was completed */
 	completedAt?: string;
-	/** ISO timestamp when findings were extracted and PRD was archived */
-	archivedAt?: string;
 	/** List of stories (work chunks) */
 	stories: Story[];
 	/** PRD names that must be completed before this one can start */

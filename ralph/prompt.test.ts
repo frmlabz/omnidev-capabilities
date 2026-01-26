@@ -6,7 +6,7 @@ import assert from "node:assert";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, it } from "node:test";
 import { generatePrompt } from "./prompt.ts";
 import type { PRD, Story } from "./types.ts";
 
@@ -16,7 +16,8 @@ const PRDS_DIR = join(RALPH_DIR, "prds");
 
 // Helper to create a PRD directly
 async function createTestPRD(name: string, prd: Partial<PRD> = {}): Promise<void> {
-	const prdDir = join(PRDS_DIR, name);
+	// Create in pending folder to match new status-based structure
+	const prdDir = join(PRDS_DIR, "pending", name);
 	mkdirSync(prdDir, { recursive: true });
 
 	const fullPRD: PRD = {
@@ -49,202 +50,200 @@ afterEach(() => {
 	}
 });
 
-describe("generatePrompt", () => {
-	it("generates prompt with PRD context", async () => {
-		const prd: PRD = {
-			name: "test-project",
-			description: "Test project description",
-			createdAt: "2026-01-09T00:00:00Z",
-			stories: [],
-		};
+it("generates prompt with PRD context", async () => {
+	const prd: PRD = {
+		name: "test-project",
+		description: "Test project description",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [],
+	};
 
-		const story: Story = {
-			id: "US-001",
-			title: "Test Story",
-			acceptanceCriteria: ["Feature works", "Tests pass"],
-			status: "pending",
-			priority: 1,
-			questions: [],
-		};
+	const story: Story = {
+		id: "US-001",
+		title: "Test Story",
+		acceptanceCriteria: ["Feature works", "Tests pass"],
+		status: "pending",
+		priority: 1,
+		questions: [],
+	};
 
-		await createTestPRD("test-project", prd);
+	await createTestPRD("test-project", prd);
 
-		const prompt = await generatePrompt(prd, story, "test-project");
+	const prompt = await generatePrompt(prd, story, "test-project");
 
-		assert.ok(prompt.includes("test-project"));
-		assert.ok(prompt.includes("Test project description"));
-		assert.ok(prompt.includes("US-001"));
-		assert.ok(prompt.includes("Test Story"));
-		assert.ok(prompt.includes("Feature works"));
-		assert.ok(prompt.includes("Tests pass"));
-	});
+	assert.ok(prompt.includes("test-project"));
+	assert.ok(prompt.includes("Test project description"));
+	assert.ok(prompt.includes("US-001"));
+	assert.ok(prompt.includes("Test Story"));
+	assert.ok(prompt.includes("Feature works"));
+	assert.ok(prompt.includes("Tests pass"));
+});
 
-	it("includes spec content", async () => {
-		const prd: PRD = {
-			name: "spec-test",
-			description: "Test",
-			createdAt: "2026-01-09T00:00:00Z",
-			stories: [],
-		};
+it("includes spec content", async () => {
+	const prd: PRD = {
+		name: "spec-test",
+		description: "Test",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [],
+	};
 
-		const story: Story = {
-			id: "US-002",
-			title: "Story",
-			acceptanceCriteria: [],
-			status: "pending",
-			priority: 1,
-			questions: [],
-		};
+	const story: Story = {
+		id: "US-002",
+		title: "Story",
+		acceptanceCriteria: [],
+		status: "pending",
+		priority: 1,
+		questions: [],
+	};
 
-		await createTestPRD("spec-test", prd);
+	await createTestPRD("spec-test", prd);
 
-		const prompt = await generatePrompt(prd, story, "spec-test");
+	const prompt = await generatePrompt(prd, story, "spec-test");
 
-		assert.ok(prompt.includes("Test Spec"));
-		assert.ok(prompt.includes("Test specification content"));
-	});
+	assert.ok(prompt.includes("Test Spec"));
+	assert.ok(prompt.includes("Test specification content"));
+});
 
-	it("includes recent progress", async () => {
-		const prd: PRD = {
-			name: "progress-test",
-			description: "Test",
-			createdAt: "2026-01-09T00:00:00Z",
-			stories: [],
-		};
+it("includes recent progress", async () => {
+	const prd: PRD = {
+		name: "progress-test",
+		description: "Test",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [],
+	};
 
-		const story: Story = {
-			id: "US-002",
-			title: "Story",
-			acceptanceCriteria: [],
-			status: "pending",
-			priority: 1,
-			questions: [],
-		};
+	const story: Story = {
+		id: "US-002",
+		title: "Story",
+		acceptanceCriteria: [],
+		status: "pending",
+		priority: 1,
+		questions: [],
+	};
 
-		await createTestPRD("progress-test", prd);
+	await createTestPRD("progress-test", prd);
 
-		// Add progress
-		const { appendProgress } = await import("./state.ts");
-		await appendProgress("progress-test", "## Test Progress\n- Did something");
+	// Add progress
+	const { appendProgress } = await import("./state.ts");
+	await appendProgress("progress-test", "## Test Progress\n- Did something");
 
-		const prompt = await generatePrompt(prd, story, "progress-test");
+	const prompt = await generatePrompt(prd, story, "progress-test");
 
-		assert.ok(prompt.includes("Test Progress"));
-		assert.ok(prompt.includes("Did something"));
-	});
+	assert.ok(prompt.includes("Test Progress"));
+	assert.ok(prompt.includes("Did something"));
+});
 
-	it("includes codebase patterns", async () => {
-		const prd: PRD = {
-			name: "patterns-test",
-			description: "Test",
-			createdAt: "2026-01-09T00:00:00Z",
-			stories: [],
-		};
+it("includes codebase patterns", async () => {
+	const prd: PRD = {
+		name: "patterns-test",
+		description: "Test",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [],
+	};
 
-		const story: Story = {
-			id: "US-003",
-			title: "Story",
-			acceptanceCriteria: [],
-			status: "pending",
-			priority: 1,
-			questions: [],
-		};
+	const story: Story = {
+		id: "US-003",
+		title: "Story",
+		acceptanceCriteria: [],
+		status: "pending",
+		priority: 1,
+		questions: [],
+	};
 
-		await createTestPRD("patterns-test", prd);
-		const prdDir = join(PRDS_DIR, "patterns-test");
-		const progressPath = join(prdDir, "progress.txt");
-		await writeFile(
-			progressPath,
-			"## Codebase Patterns\n- Use writeFile()\n- Use strict types\n\n---\n\n## Progress Log\n",
-		);
+	await createTestPRD("patterns-test", prd);
+	const prdDir = join(PRDS_DIR, "pending", "patterns-test");
+	const progressPath = join(prdDir, "progress.txt");
+	await writeFile(
+		progressPath,
+		"## Codebase Patterns\n- Use writeFile()\n- Use strict types\n\n---\n\n## Progress Log\n",
+	);
 
-		const prompt = await generatePrompt(prd, story, "patterns-test");
+	const prompt = await generatePrompt(prd, story, "patterns-test");
 
-		assert.ok(prompt.includes("Use writeFile()"));
-		assert.ok(prompt.includes("Use strict types"));
-	});
+	assert.ok(prompt.includes("Use writeFile()"));
+	assert.ok(prompt.includes("Use strict types"));
+});
 
-	it("handles empty patterns gracefully", async () => {
-		const prd: PRD = {
-			name: "no-patterns",
-			description: "Test",
-			createdAt: "2026-01-09T00:00:00Z",
-			stories: [],
-		};
+it("handles empty patterns gracefully", async () => {
+	const prd: PRD = {
+		name: "no-patterns",
+		description: "Test",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [],
+	};
 
-		const story: Story = {
-			id: "US-004",
-			title: "Story",
-			acceptanceCriteria: [],
-			status: "pending",
-			priority: 1,
-			questions: [],
-		};
+	const story: Story = {
+		id: "US-004",
+		title: "Story",
+		acceptanceCriteria: [],
+		status: "pending",
+		priority: 1,
+		questions: [],
+	};
 
-		await createTestPRD("no-patterns", prd);
+	await createTestPRD("no-patterns", prd);
 
-		const prompt = await generatePrompt(prd, story, "no-patterns");
+	const prompt = await generatePrompt(prd, story, "no-patterns");
 
-		assert.ok(prompt.includes("None yet"));
-	});
+	assert.ok(prompt.includes("None yet"));
+});
 
-	it("formats acceptance criteria as bullet list", async () => {
-		const prd: PRD = {
-			name: "criteria-test",
-			description: "Test",
-			createdAt: "2026-01-09T00:00:00Z",
-			stories: [],
-		};
+it("formats acceptance criteria as bullet list", async () => {
+	const prd: PRD = {
+		name: "criteria-test",
+		description: "Test",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [],
+	};
 
-		const story: Story = {
-			id: "US-005",
-			title: "Story",
-			acceptanceCriteria: ["First criterion", "Second criterion"],
-			status: "pending",
-			priority: 1,
-			questions: [],
-		};
+	const story: Story = {
+		id: "US-005",
+		title: "Story",
+		acceptanceCriteria: ["First criterion", "Second criterion"],
+		status: "pending",
+		priority: 1,
+		questions: [],
+	};
 
-		await createTestPRD("criteria-test", prd);
+	await createTestPRD("criteria-test", prd);
 
-		const prompt = await generatePrompt(prd, story, "criteria-test");
+	const prompt = await generatePrompt(prd, story, "criteria-test");
 
-		assert.ok(prompt.includes("  - First criterion"));
-		assert.ok(prompt.includes("  - Second criterion"));
-	});
+	assert.ok(prompt.includes("  - First criterion"));
+	assert.ok(prompt.includes("  - Second criterion"));
+});
 
-	it("includes other stories for context", async () => {
-		const prd: PRD = {
-			name: "multi-story",
-			description: "Test",
-			createdAt: "2026-01-09T00:00:00Z",
-			stories: [
-				{
-					id: "US-001",
-					title: "First Story",
-					acceptanceCriteria: [],
-					status: "completed",
-					priority: 1,
-					questions: [],
-				},
-				{
-					id: "US-002",
-					title: "Second Story",
-					acceptanceCriteria: [],
-					status: "pending",
-					priority: 2,
-					questions: [],
-				},
-			],
-		};
+it("includes other stories for context", async () => {
+	const prd: PRD = {
+		name: "multi-story",
+		description: "Test",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [
+			{
+				id: "US-001",
+				title: "First Story",
+				acceptanceCriteria: [],
+				status: "completed",
+				priority: 1,
+				questions: [],
+			},
+			{
+				id: "US-002",
+				title: "Second Story",
+				acceptanceCriteria: [],
+				status: "pending",
+				priority: 2,
+				questions: [],
+			},
+		],
+	};
 
-		const story = prd.stories[1];
-		assert.ok(story !== undefined);
+	const story = prd.stories[1];
+	assert.ok(story !== undefined);
 
-		await createTestPRD("multi-story", prd);
+	await createTestPRD("multi-story", prd);
 
-		const prompt = await generatePrompt(prd, story, "multi-story");
+	const prompt = await generatePrompt(prd, story, "multi-story");
 
-		assert.ok(prompt.includes("US-001: First Story [completed]"));
-	});
+	assert.ok(prompt.includes("US-001: First Story [completed]"));
 });
