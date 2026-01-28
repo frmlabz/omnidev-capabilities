@@ -5,7 +5,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { loadRalphConfig, runAgent } from "./orchestrator.ts";
@@ -669,6 +669,130 @@ export async function saveTestReport(prdName: string, report: TestReport): Promi
 }
 
 /**
+ * Read previous test report and extract failed items
+ */
+async function getPreviousFailures(prdName: string): Promise<string[] | null> {
+	const testResultsDir = getTestResultsDir(prdName);
+	if (!testResultsDir) return null;
+
+	const reportPath = join(testResultsDir, "report.md");
+	if (!existsSync(reportPath)) return null;
+
+	try {
+		const content = await readFile(reportPath, "utf-8");
+
+		// Extract failed items from the report
+		const failures: string[] = [];
+		const failedMatches = content.matchAll(
+			/- \[ \]\s*(.+?)(?:\s*-\s*\*\*Reason:\*\*\s*(.+?))?(?:\n|$)/gi,
+		);
+		for (const match of failedMatches) {
+			const item = match[1]?.trim();
+			const reason = match[2]?.trim();
+			if (item) {
+				failures.push(reason ? `${item} (Previous failure: ${reason})` : item);
+			}
+		}
+
+		// Also extract issues from the report
+		const issuesMatch = content.match(/<issues>([\s\S]*?)<\/issues>/);
+		if (issuesMatch?.[1]) {
+			const issues = issuesMatch[1]
+				.split("\n")
+				.map((line) => line.trim())
+				.filter((line) => line.startsWith("-"))
+				.map((line) => line.slice(1).trim())
+				.filter((line) => line.length > 0);
+			failures.push(...issues);
+		}
+
+		return failures.length > 0 ? failures : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Generate a focused retest prompt for previously failed items
+ */
+async function generateRetestPrompt(
+	prdName: string,
+	previousFailures: string[],
+	config: RalphConfig,
+): Promise<string> {
+	const prd = await getPRD(prdName);
+	const status = findPRDLocation(prdName);
+	const testResultsDir = getTestResultsDir(prdName) || "test-results";
+
+	// Get project verification instructions from config
+	const projectInstructions =
+		config.testing?.project_verification_instructions ||
+		"Run project quality checks (lint, typecheck, tests) to ensure code quality.";
+
+	// Testing instructions (URLs, credentials, context)
+	const testingInstructions = config.testing?.instructions || "";
+
+	return `# Retest Task: ${prd.name}
+
+You are verifying that previously failed tests have been fixed.
+
+## CRITICAL: This is a FOCUSED RETEST
+
+A previous test run found failures. Your job is to verify ONLY the items that previously failed.
+Do NOT re-run the entire test suite - focus on the specific failures listed below.
+
+## Previous Failures to Verify
+
+${previousFailures.map((f, i) => `${i + 1}. ${f}`).join("\n")}
+
+## Project Verification Instructions
+
+${projectInstructions}
+
+${testingInstructions ? `## Testing Instructions\n\n${testingInstructions}\n` : ""}
+
+## Test Results Directory
+
+Save evidence to: \`${testResultsDir}/\`
+
+## Your Task
+
+1. For each previously failed item above:
+   - Verify if it has been fixed
+   - Document the result (pass/fail)
+   - If still failing, explain why
+
+2. Run project quality checks (lint, typecheck, tests) to ensure fixes didn't break anything
+
+3. Output your result:
+
+**If ALL previously failed items are now fixed:**
+\`\`\`
+<test-result>PRD_VERIFIED</test-result>
+\`\`\`
+
+**If ANY items still fail:**
+\`\`\`
+<test-result>PRD_FAILED</test-result>
+<issues>
+- Issue description 1
+- Issue description 2
+</issues>
+\`\`\`
+
+## File Paths
+
+PRD files are located at:
+- PRD: .omni/state/ralph/prds/${status}/${prdName}/prd.json
+- Progress: .omni/state/ralph/prds/${status}/${prdName}/progress.txt
+- Verification: .omni/state/ralph/prds/${status}/${prdName}/verification.md
+- Test Results: .omni/state/ralph/prds/${status}/${prdName}/test-results/
+
+Begin focused retest now. Only verify the ${previousFailures.length} previously failed item(s).
+`;
+}
+
+/**
  * Run testing for a PRD with QA feedback loop
  */
 export async function runTesting(
@@ -715,11 +839,26 @@ export async function runTesting(
 		}
 	}
 
-	// Clear previous test results
-	console.log("Clearing previous test results...");
-	await clearTestResults(prdName);
+	// Check for previous test failures (for focused retesting)
+	const previousFailures = await getPreviousFailures(prdName);
+	const isFocusedRetest = previousFailures !== null && previousFailures.length > 0;
 
-	console.log(`\nStarting testing for PRD: ${prdName}`);
+	if (isFocusedRetest) {
+		console.log(
+			`\n🔄 Found ${previousFailures.length} previous failure(s) - running focused retest`,
+		);
+		console.log("Previous failures:");
+		for (const failure of previousFailures) {
+			console.log(`  - ${failure}`);
+		}
+		console.log("");
+	} else {
+		// Clear previous test results only for full test runs
+		console.log("Clearing previous test results...");
+		await clearTestResults(prdName);
+	}
+
+	console.log(`\nStarting ${isFocusedRetest ? "focused retest" : "testing"} for PRD: ${prdName}`);
 	console.log(`Using agent: ${agentName}`);
 	if (config.testing?.web_testing_enabled) {
 		console.log("Web testing: enabled");
@@ -763,8 +902,10 @@ export async function runTesting(
 		console.log("\n⚠️  Health check failed - continuing anyway, tests may fail");
 	}
 
-	// Generate test prompt
-	const prompt = await generateTestPrompt(prdName, config);
+	// Generate test prompt (focused or full)
+	const prompt = isFocusedRetest
+		? await generateRetestPrompt(prdName, previousFailures, config)
+		: await generateTestPrompt(prdName, config);
 
 	// Run agent with streaming output
 	console.log("\nSpawning test agent...\n");
