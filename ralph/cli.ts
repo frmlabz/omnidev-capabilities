@@ -97,11 +97,25 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 
 	const statusFilter =
 		typeof flags["status"] === "string" ? (flags["status"] as PRDStatus) : undefined;
-	const prds = await listPRDsByStatus(statusFilter);
+	const showAll = flags["all"] === true;
+
+	let prds = await listPRDsByStatus(statusFilter);
+
+	// By default, exclude completed PRDs unless --all is specified or a specific status is requested
+	if (!showAll && !statusFilter) {
+		prds = prds.filter((p) => p.status !== "completed");
+	}
 
 	if (prds.length === 0) {
-		console.log("No PRDs found.");
-		console.log("\nCreate a PRD using the /prd skill.");
+		if (!showAll && !statusFilter) {
+			console.log("No active PRDs found.");
+			console.log(
+				"\nUse --all to include completed PRDs, or create a new PRD using the /prd skill.",
+			);
+		} else {
+			console.log("No PRDs found.");
+			console.log("\nCreate a PRD using the /prd skill.");
+		}
 		return;
 	}
 
@@ -580,7 +594,12 @@ const listCommand = command({
 		flags: {
 			status: {
 				kind: "string",
-				brief: "Filter by status (pending, testing, completed, archived)",
+				brief: "Filter by status (pending, testing, completed)",
+				optional: true,
+			},
+			all: {
+				kind: "boolean",
+				brief: "Include completed PRDs (excluded by default)",
 				optional: true,
 			},
 		},
