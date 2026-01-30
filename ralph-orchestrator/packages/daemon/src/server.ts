@@ -35,9 +35,10 @@ export function createApp(options: {
 	registry: DaemonRegistry;
 	logManager: LogManager;
 	processManager: ProcessManager;
+	wsManager: WebSocketManager;
 	projectPath: string;
 }) {
-	const { registry, logManager, processManager, projectPath } = options;
+	const { registry, logManager, processManager, wsManager, projectPath } = options;
 	const projectName = basename(projectPath);
 
 	const app = new Hono();
@@ -144,19 +145,90 @@ export function createApp(options: {
 		} satisfies ApiResponse<typeof logs>);
 	});
 
-	// Start PRD development (placeholder for Phase 3)
+	// Start PRD development
 	app.post("/api/prds/:name/start", async (c) => {
 		const name = c.req.param("name");
 
-		// Phase 1: Just acknowledge the request
-		// Phase 3 will implement actual process spawning
+		// Check if PRD exists
+		try {
+			await getPRD(name);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "Failed to get PRD";
+			return c.json(
+				{
+					ok: false,
+					error: {
+						code: "PRD_NOT_FOUND",
+						message,
+					},
+				} satisfies ApiResponse<never>,
+				404,
+			);
+		}
+
+		// Check if already running
+		if (processManager.isRunning(name)) {
+			return c.json(
+				{
+					ok: false,
+					error: {
+						code: "ALREADY_RUNNING",
+						message: `PRD '${name}' is already running`,
+					},
+				} satisfies ApiResponse<never>,
+				409,
+			);
+		}
+
+		// Spawn the ralph process
+		const managed = await processManager.start({
+			prdName: name,
+			operation: "develop",
+			command: "bun",
+			args: ["run", "ralph/cli.ts", "start", name],
+			cwd: projectPath,
+			onLog: (line) => {
+				// Broadcast log to subscribed clients
+				wsManager.broadcastToPrd(name, {
+					type: "prd:log",
+					prd: name,
+					line,
+					timestamp: new Date().toISOString(),
+				});
+			},
+			onExit: (code) => {
+				// Broadcast status change when process exits
+				wsManager.broadcastToPrd(name, {
+					type: "prd:status",
+					prd: name,
+					status: code === 0 ? "completed" : "stopped",
+					timestamp: new Date().toISOString(),
+				});
+				// Also broadcast to all clients for dashboard updates
+				wsManager.broadcast({
+					type: "prd:status",
+					prd: name,
+					status: code === 0 ? "completed" : "stopped",
+					timestamp: new Date().toISOString(),
+				});
+			},
+		});
+
+		// Broadcast initial running status
+		wsManager.broadcast({
+			type: "prd:status",
+			prd: name,
+			status: "running",
+			timestamp: new Date().toISOString(),
+		});
+
 		return c.json({
 			ok: true,
-			data: { message: `Start PRD '${name}' - not yet implemented (Phase 3)` },
-		} satisfies ApiResponse<{ message: string }>);
+			data: { started: true, pid: managed.process.pid },
+		} satisfies ApiResponse<{ started: boolean; pid: number }>);
 	});
 
-	// Stop PRD development (placeholder for Phase 3)
+	// Stop PRD development
 	app.post("/api/prds/:name/stop", async (c) => {
 		const name = c.req.param("name");
 
@@ -175,20 +247,101 @@ export function createApp(options: {
 			);
 		}
 
+		// Broadcast stopped status
+		wsManager.broadcast({
+			type: "prd:status",
+			prd: name,
+			status: "stopped",
+			timestamp: new Date().toISOString(),
+		});
+
 		return c.json({
 			ok: true,
 			data: { stopped: true },
 		} satisfies ApiResponse<{ stopped: boolean }>);
 	});
 
-	// Test PRD (placeholder for Phase 3)
+	// Test PRD
 	app.post("/api/prds/:name/test", async (c) => {
 		const name = c.req.param("name");
 
+		// Check if PRD exists
+		try {
+			await getPRD(name);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "Failed to get PRD";
+			return c.json(
+				{
+					ok: false,
+					error: {
+						code: "PRD_NOT_FOUND",
+						message,
+					},
+				} satisfies ApiResponse<never>,
+				404,
+			);
+		}
+
+		// Check if already running
+		if (processManager.isRunning(name)) {
+			return c.json(
+				{
+					ok: false,
+					error: {
+						code: "ALREADY_RUNNING",
+						message: `PRD '${name}' is already running`,
+					},
+				} satisfies ApiResponse<never>,
+				409,
+			);
+		}
+
+		// Spawn the ralph test process
+		const managed = await processManager.start({
+			prdName: name,
+			operation: "test",
+			command: "bun",
+			args: ["run", "ralph/cli.ts", "test", name],
+			cwd: projectPath,
+			onLog: (line) => {
+				// Broadcast log to subscribed clients
+				wsManager.broadcastToPrd(name, {
+					type: "prd:log",
+					prd: name,
+					line,
+					timestamp: new Date().toISOString(),
+				});
+			},
+			onExit: (code) => {
+				// Broadcast status change when process exits
+				wsManager.broadcastToPrd(name, {
+					type: "prd:status",
+					prd: name,
+					status: code === 0 ? "completed" : "stopped",
+					timestamp: new Date().toISOString(),
+				});
+				// Also broadcast to all clients for dashboard updates
+				wsManager.broadcast({
+					type: "prd:status",
+					prd: name,
+					status: code === 0 ? "completed" : "stopped",
+					timestamp: new Date().toISOString(),
+				});
+			},
+		});
+
+		// Broadcast initial running status
+		wsManager.broadcast({
+			type: "prd:status",
+			prd: name,
+			status: "testing",
+			timestamp: new Date().toISOString(),
+		});
+
 		return c.json({
 			ok: true,
-			data: { message: `Test PRD '${name}' - not yet implemented (Phase 3)` },
-		} satisfies ApiResponse<{ message: string }>);
+			data: { started: true, pid: managed.process.pid },
+		} satisfies ApiResponse<{ started: boolean; pid: number }>);
 	});
 
 	return app;

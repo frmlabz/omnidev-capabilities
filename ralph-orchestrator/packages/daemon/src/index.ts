@@ -135,6 +135,7 @@ async function startDaemon(host: string, requestedPort?: number) {
 		registry,
 		logManager,
 		processManager,
+		wsManager,
 		projectPath,
 	});
 

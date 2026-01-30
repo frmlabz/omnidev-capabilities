@@ -16,8 +16,9 @@
 		"forceConsistentCasingInFileNames": true,
 		"declaration": true,
 		"declarationMap": true,
-		"sourceMap": true
+		"sourceMap": true,
+		"jsx": "react-jsx"
 	},
-	"include": ["**/*.ts"],
+	"include": ["**/*.ts", "**/*.tsx"],
 	"exclude": ["node_modules", "dist"]
 }

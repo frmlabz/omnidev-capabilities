@@ -5,11 +5,24 @@
  * For MVP, daemon URLs are configured via environment variable.
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DaemonCard } from "./components/DaemonCard";
 import { PRDCard } from "./components/PRDCard";
+import { PRDDetailPage } from "./components/PRDDetailPage";
 import { fetchDaemonStatus, type DaemonWithStatus } from "./lib/daemon-client";
-import type { DaemonRegistration } from "./lib/schemas";
+import { WebSocketProvider } from "./lib/websocket";
+import type { DaemonRegistration, PRDSummary } from "./lib/schemas";
+
+/**
+ * Selected PRD state for navigation
+ */
+interface SelectedPRD {
+	prd: PRDSummary;
+	daemonHost: string;
+	daemonPort: number;
+	daemonName: string;
+}
 
 /**
  * Parse daemon URLs from environment or use defaults
@@ -46,6 +59,8 @@ async function fetchAllDaemons(): Promise<DaemonWithStatus[]> {
 }
 
 export function App() {
+	const [selectedPrd, setSelectedPrd] = useState<SelectedPRD | null>(null);
+
 	const {
 		data: daemons = [],
 		isLoading,
@@ -61,10 +76,46 @@ export function App() {
 		d.prds.map((prd) => ({
 			prd,
 			daemonId: d.registration.id,
+			daemonHost: d.registration.host,
+			daemonPort: d.registration.port,
 			daemonName: d.info?.projectName || d.registration.projectName,
 		})),
 	);
 	const runningPRDs = allPRDs.filter((p) => p.prd.isRunning);
+
+	// Handle PRD selection for navigation
+	const handlePrdClick = (prdData: {
+		prd: PRDSummary;
+		daemonHost: string;
+		daemonPort: number;
+		daemonName: string;
+	}) => {
+		setSelectedPrd(prdData);
+	};
+
+	// Handle back navigation
+	const handleBack = () => {
+		setSelectedPrd(null);
+		// Refresh data when returning to dashboard
+		refetch();
+	};
+
+	// Detail page view
+	if (selectedPrd) {
+		return (
+			<WebSocketProvider host={selectedPrd.daemonHost} port={selectedPrd.daemonPort}>
+				<div className="max-w-6xl mx-auto px-4 py-8">
+					<PRDDetailPage
+						prd={selectedPrd.prd}
+						daemonHost={selectedPrd.daemonHost}
+						daemonPort={selectedPrd.daemonPort}
+						daemonName={selectedPrd.daemonName}
+						onBack={handleBack}
+					/>
+				</div>
+			</WebSocketProvider>
+		);
+	}
 
 	return (
 		<div className="max-w-6xl mx-auto px-4 py-8">
@@ -118,8 +169,15 @@ export function App() {
 								Running ({runningPRDs.length})
 							</h2>
 							<div className="grid gap-4 md:grid-cols-2">
-								{runningPRDs.map(({ prd, daemonId, daemonName }) => (
-									<PRDCard key={`${daemonId}-${prd.name}`} prd={prd} daemonName={daemonName} />
+								{runningPRDs.map(({ prd, daemonId, daemonHost, daemonPort, daemonName }) => (
+									<PRDCard
+										key={`${daemonId}-${prd.name}`}
+										prd={prd}
+										daemonName={daemonName}
+										daemonHost={daemonHost}
+										daemonPort={daemonPort}
+										onClick={() => handlePrdClick({ prd, daemonHost, daemonPort, daemonName })}
+									/>
 								))}
 							</div>
 						</section>
@@ -134,8 +192,15 @@ export function App() {
 							<p className="text-gray-500">No PRDs found in connected daemons</p>
 						) : (
 							<div className="grid gap-4 md:grid-cols-2">
-								{allPRDs.map(({ prd, daemonId, daemonName }) => (
-									<PRDCard key={`${daemonId}-${prd.name}`} prd={prd} daemonName={daemonName} />
+								{allPRDs.map(({ prd, daemonId, daemonHost, daemonPort, daemonName }) => (
+									<PRDCard
+										key={`${daemonId}-${prd.name}`}
+										prd={prd}
+										daemonName={daemonName}
+										daemonHost={daemonHost}
+										daemonPort={daemonPort}
+										onClick={() => handlePrdClick({ prd, daemonHost, daemonPort, daemonName })}
+									/>
 								))}
 							</div>
 						)}

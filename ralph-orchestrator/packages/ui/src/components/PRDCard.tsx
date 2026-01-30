@@ -8,14 +8,28 @@ import { StatusBadge } from "./StatusBadge";
 interface PRDCardProps {
 	prd: PRDSummary;
 	daemonName: string;
+	daemonHost?: string;
+	daemonPort?: number;
+	onClick?: () => void;
 }
 
-export function PRDCard({ prd, daemonName }: PRDCardProps) {
+export function PRDCard({ prd, daemonName, onClick }: PRDCardProps) {
 	const progressPercent =
 		prd.progress.total > 0 ? Math.round((prd.progress.completed / prd.progress.total) * 100) : 0;
 
+	const cardClasses = onClick
+		? "bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer"
+		: "bg-white rounded-lg border border-gray-200 p-4 hover:border-gray-300 hover:shadow-sm transition-all";
+
 	return (
-		<div className="bg-white rounded-lg border border-gray-200 p-4 hover:border-gray-300 hover:shadow-sm transition-all">
+		// biome-ignore lint/a11y/noStaticElementInteractions: role="button" is conditionally applied with onClick
+		<div
+			className={cardClasses}
+			onClick={onClick}
+			onKeyDown={onClick ? (e) => e.key === "Enter" && onClick() : undefined}
+			role={onClick ? "button" : undefined}
+			tabIndex={onClick ? 0 : undefined}
+		>
 			<div className="flex items-start justify-between">
 				<div className="flex-1 min-w-0">
 					<h3 className="text-lg font-semibold text-gray-900 truncate">{prd.name}</h3>

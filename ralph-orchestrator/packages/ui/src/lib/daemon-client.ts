@@ -88,12 +88,14 @@ export function createDaemonClient(host: string, port: number) {
 		/**
 		 * Start PRD development
 		 */
-		async startPRD(name: string): Promise<{ message: string }> {
+		async startPRD(name: string): Promise<{ started: boolean; pid?: number }> {
 			const response = await fetch(`${baseUrl}/api/prds/${encodeURIComponent(name)}/start`, {
 				method: "POST",
 			});
 			const data = await response.json();
-			const envelope = ApiResponseSchema(z.object({ message: z.string() })).parse(data);
+			const envelope = ApiResponseSchema(
+				z.object({ started: z.boolean(), pid: z.number().optional() }),
+			).parse(data);
 
 			if (!envelope.ok || !envelope.data) {
 				throw new Error(envelope.error?.message ?? "Unknown error");
@@ -111,6 +113,25 @@ export function createDaemonClient(host: string, port: number) {
 			});
 			const data = await response.json();
 			const envelope = ApiResponseSchema(z.object({ stopped: z.boolean() })).parse(data);
+
+			if (!envelope.ok || !envelope.data) {
+				throw new Error(envelope.error?.message ?? "Unknown error");
+			}
+
+			return envelope.data;
+		},
+
+		/**
+		 * Test PRD (run tests)
+		 */
+		async testPRD(name: string): Promise<{ started: boolean; pid?: number }> {
+			const response = await fetch(`${baseUrl}/api/prds/${encodeURIComponent(name)}/test`, {
+				method: "POST",
+			});
+			const data = await response.json();
+			const envelope = ApiResponseSchema(
+				z.object({ started: z.boolean(), pid: z.number().optional() }),
+			).parse(data);
 
 			if (!envelope.ok || !envelope.data) {
 				throw new Error(envelope.error?.message ?? "Unknown error");
