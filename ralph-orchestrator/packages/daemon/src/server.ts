@@ -780,14 +780,26 @@ export function createApp(options: {
 
 		// Create worktree if it doesn't exist
 		if (!matchingWorktree) {
-			const proc = Bun.spawn(["wt", "switch", "-c", name], {
+			// Try creating new branch first (--yes skips interactive approval prompts)
+			let proc = Bun.spawn(["wt", "switch", "-c", name, "--yes"], {
 				cwd: mainWorktree.path,
 				stdout: "pipe",
 				stderr: "pipe",
 			});
 
-			const exitCode = await proc.exited;
-			const stderr = await new Response(proc.stderr).text();
+			let exitCode = await proc.exited;
+			let stderr = await new Response(proc.stderr).text();
+
+			// If branch already exists, try switching to it without -c
+			if (exitCode !== 0 && stderr.includes("already exists")) {
+				proc = Bun.spawn(["wt", "switch", name, "--yes"], {
+					cwd: mainWorktree.path,
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+				exitCode = await proc.exited;
+				stderr = await new Response(proc.stderr).text();
+			}
 
 			if (exitCode !== 0) {
 				return c.json(
@@ -1145,16 +1157,29 @@ export function createApp(options: {
 			);
 		}
 
-		// Run wt switch -c <name> from main worktree
-		const proc = Bun.spawn(["wt", "switch", "-c", name], {
+		// Run wt switch -c <name> from main worktree (--yes skips interactive approval)
+		// Try creating new branch first, fall back to switching if branch exists
+		let proc = Bun.spawn(["wt", "switch", "-c", name, "--yes"], {
 			cwd: mainWorktree.path,
 			stdout: "pipe",
 			stderr: "pipe",
 		});
 
-		const exitCode = await proc.exited;
-		const stdout = await new Response(proc.stdout).text();
-		const stderr = await new Response(proc.stderr).text();
+		let exitCode = await proc.exited;
+		let stdout = await new Response(proc.stdout).text();
+		let stderr = await new Response(proc.stderr).text();
+
+		// If branch already exists, try switching to it without -c
+		if (exitCode !== 0 && stderr.includes("already exists")) {
+			proc = Bun.spawn(["wt", "switch", name, "--yes"], {
+				cwd: mainWorktree.path,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			exitCode = await proc.exited;
+			stdout = await new Response(proc.stdout).text();
+			stderr = await new Response(proc.stderr).text();
+		}
 
 		if (exitCode !== 0) {
 			return c.json(

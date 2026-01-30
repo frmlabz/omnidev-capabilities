@@ -14,6 +14,7 @@ import {
 	type EngineEvent,
 	type RunOptions as EngineRunOptions,
 } from "./orchestration/engine.js";
+import { Logger } from "./core/logger.js";
 import type { TestReport } from "./types.js";
 
 /**
@@ -45,7 +46,11 @@ export class Orchestrator extends EventEmitter {
 
 	constructor() {
 		super();
-		this.engine = new OrchestrationEngine();
+		// Create engine with a no-op logger to avoid duplicate console output
+		// (events are emitted via onEvent callback instead)
+		const silentLogger = new Logger();
+		// Don't add any outputs - logs go via events only
+		this.engine = new OrchestrationEngine({ logger: silentLogger });
 	}
 
 	/**

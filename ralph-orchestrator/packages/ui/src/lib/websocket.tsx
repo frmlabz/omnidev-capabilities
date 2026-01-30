@@ -150,6 +150,14 @@ export function WebSocketProvider({ host, port, children }: WebSocketProviderPro
 					case "prd:status":
 						// Invalidate queries to refresh PRD data
 						queryClient.invalidateQueries({ queryKey: ["daemons"] });
+						// Also invalidate the specific PRD query (for detail page)
+						queryClient.invalidateQueries({
+							queryKey: ["prd"],
+							predicate: (query) => {
+								const key = query.queryKey;
+								return Array.isArray(key) && key[0] === "prd" && key[3] === data.prd;
+							},
+						});
 						// Notify status listeners
 						for (const listener of statusListenersRef.current) {
 							listener(data.prd, data.status);

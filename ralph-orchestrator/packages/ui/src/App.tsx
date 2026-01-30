@@ -5,37 +5,15 @@
  * Daemons are automatically discovered from the local registry.
  */
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { DaemonCard } from "./components/DaemonCard";
 import { PRDCard } from "./components/PRDCard";
-import { PRDDetailPage } from "./components/PRDDetailPage";
 import { WorktreeCard } from "./components/WorktreeCard";
-import { WorktreeDetailPage } from "./components/WorktreeDetailPage";
 import { DaemonGridSkeleton, PRDGridSkeleton } from "./components/LoadingSkeleton";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { createDaemonClient, fetchDaemonStatus, type DaemonWithStatus } from "./lib/daemon-client";
-import { WebSocketProvider } from "./lib/websocket";
 import type { DaemonRegistration, PRDSummary, WorktreeSummary } from "./lib/schemas";
-
-/**
- * Selected PRD state for navigation
- */
-interface SelectedPRD {
-	prd: PRDSummary;
-	daemonHost: string;
-	daemonPort: number;
-	daemonName: string;
-}
-
-/**
- * Selected Worktree state for navigation
- */
-interface SelectedWorktree {
-	worktree: WorktreeSummary;
-	daemonHost: string;
-	daemonPort: number;
-}
 
 /**
  * Discover daemons from the server's registry
@@ -111,8 +89,7 @@ async function fetchAllDaemonData(): Promise<DaemonData[]> {
 }
 
 export function App() {
-	const [selectedPrd, setSelectedPrd] = useState<SelectedPRD | null>(null);
-	const [selectedWorktree, setSelectedWorktree] = useState<SelectedWorktree | null>(null);
+	const navigate = useNavigate();
 
 	const {
 		data: daemonData = [],
@@ -148,65 +125,33 @@ export function App() {
 	);
 	const runningPRDs = allPRDs.filter((p) => p.prd.isRunning);
 
-	// Handle PRD selection for navigation
-	const handlePrdClick = (prdData: {
-		prd: PRDSummary;
-		daemonHost: string;
-		daemonPort: number;
-		daemonName: string;
-	}) => {
-		setSelectedPrd(prdData);
+	// Handle PRD selection - navigate to PRD route
+	const handlePrdClick = (prdData: { prd: PRDSummary; daemonHost: string; daemonPort: number }) => {
+		navigate({
+			to: "/prd/$host/$port/$name",
+			params: {
+				host: prdData.daemonHost,
+				port: String(prdData.daemonPort),
+				name: prdData.prd.name,
+			},
+		});
 	};
 
-	// Handle worktree selection for navigation
+	// Handle worktree selection - navigate to worktree route
 	const handleWorktreeClick = (wtData: {
 		worktree: WorktreeSummary;
 		daemonHost: string;
 		daemonPort: number;
 	}) => {
-		setSelectedWorktree(wtData);
+		navigate({
+			to: "/worktree/$host/$port/$name",
+			params: {
+				host: wtData.daemonHost,
+				port: String(wtData.daemonPort),
+				name: wtData.worktree.name,
+			},
+		});
 	};
-
-	// Handle back navigation
-	const handleBack = () => {
-		setSelectedPrd(null);
-		setSelectedWorktree(null);
-		// Refresh data when returning to dashboard
-		refetch();
-	};
-
-	// Worktree detail page view
-	if (selectedWorktree) {
-		return (
-			<WebSocketProvider host={selectedWorktree.daemonHost} port={selectedWorktree.daemonPort}>
-				<div className="max-w-6xl mx-auto px-4 py-8">
-					<WorktreeDetailPage
-						worktree={selectedWorktree.worktree}
-						daemonHost={selectedWorktree.daemonHost}
-						daemonPort={selectedWorktree.daemonPort}
-						onBack={handleBack}
-					/>
-				</div>
-			</WebSocketProvider>
-		);
-	}
-
-	// PRD detail page view
-	if (selectedPrd) {
-		return (
-			<WebSocketProvider host={selectedPrd.daemonHost} port={selectedPrd.daemonPort}>
-				<div className="max-w-6xl mx-auto px-4 py-8">
-					<PRDDetailPage
-						prd={selectedPrd.prd}
-						daemonHost={selectedPrd.daemonHost}
-						daemonPort={selectedPrd.daemonPort}
-						daemonName={selectedPrd.daemonName}
-						onBack={handleBack}
-					/>
-				</div>
-			</WebSocketProvider>
-		);
-	}
 
 	return (
 		<div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
@@ -317,7 +262,7 @@ export function App() {
 										daemonName={daemonName}
 										daemonHost={daemonHost}
 										daemonPort={daemonPort}
-										onClick={() => handlePrdClick({ prd, daemonHost, daemonPort, daemonName })}
+										onClick={() => handlePrdClick({ prd, daemonHost, daemonPort })}
 									/>
 								))}
 							</div>
@@ -340,7 +285,7 @@ export function App() {
 										daemonName={daemonName}
 										daemonHost={daemonHost}
 										daemonPort={daemonPort}
-										onClick={() => handlePrdClick({ prd, daemonHost, daemonPort, daemonName })}
+										onClick={() => handlePrdClick({ prd, daemonHost, daemonPort })}
 									/>
 								))}
 							</div>
