@@ -36,6 +36,6 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**", "!**/node_modules", "!**/dist", "!/nix"]
+		"includes": ["**", "!**/node_modules", "!**/dist", "!/nix", "!**/*.css"]
 	}
 }
