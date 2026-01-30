@@ -1,0 +1,25 @@
+{
+	"name": "@ralph-orchestrator/daemon",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Ralph Orchestrator Daemon - headless service for PRD management",
+	"main": "src/index.ts",
+	"bin": {
+		"ralph-daemon": "src/index.ts"
+	},
+	"scripts": {
+		"dev": "bun run --watch src/index.ts",
+		"start": "bun run src/index.ts",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"hono": "^4.7.0"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.2.0",
+		"@types/node": "^22.0.0",
+		"typescript": "^5.7.2"
+	}
+}
