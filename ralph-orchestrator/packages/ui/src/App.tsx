@@ -10,6 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 import { DaemonCard } from "./components/DaemonCard";
 import { PRDCard } from "./components/PRDCard";
 import { PRDDetailPage } from "./components/PRDDetailPage";
+import { DaemonGridSkeleton, PRDGridSkeleton } from "./components/LoadingSkeleton";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { fetchDaemonStatus, type DaemonWithStatus } from "./lib/daemon-client";
 import { WebSocketProvider } from "./lib/websocket";
 import type { DaemonRegistration, PRDSummary } from "./lib/schemas";
@@ -118,33 +120,61 @@ export function App() {
 	}
 
 	return (
-		<div className="max-w-6xl mx-auto px-4 py-8">
-			<header className="flex items-center justify-between mb-8">
-				<h1 className="text-2xl font-bold text-gray-900">Ralph Orchestrator</h1>
-				<button
-					type="button"
-					onClick={() => refetch()}
-					disabled={isLoading}
-					className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-				>
-					{isLoading ? "Loading..." : "Refresh"}
-				</button>
+		<div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
+			<header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
+				<h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">
+					Ralph Orchestrator
+				</h1>
+				<div className="flex items-center gap-2">
+					<ThemeToggle />
+					<button
+						type="button"
+						onClick={() => refetch()}
+						disabled={isLoading}
+						className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700"
+					>
+						{isLoading ? "Loading..." : "Refresh"}
+					</button>
+				</div>
 			</header>
 
 			{error && (
-				<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-					Error loading daemons: {error.message}
+				<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg dark:bg-red-900/20 dark:border-red-800">
+					<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+						<div className="text-red-700 text-sm sm:text-base dark:text-red-400">
+							<strong>Error loading daemons:</strong> {error.message}
+						</div>
+						<button
+							type="button"
+							onClick={() => refetch()}
+							className="px-3 py-2 text-sm font-medium text-red-700 bg-red-100 rounded hover:bg-red-200 transition-colors w-full sm:w-auto dark:text-red-300 dark:bg-red-900/50 dark:hover:bg-red-900"
+						>
+							Retry
+						</button>
+					</div>
 				</div>
 			)}
 
-			{daemons.length === 0 && !isLoading ? (
+			{isLoading ? (
+				<>
+					<section className="mb-8">
+						<h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Daemons</h2>
+						<DaemonGridSkeleton count={2} />
+					</section>
+					<section>
+						<h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">PRDs</h2>
+						<PRDGridSkeleton count={4} />
+					</section>
+				</>
+			) : daemons.length === 0 ? (
 				<div className="text-center py-12">
-					<p className="text-gray-500 text-lg">No daemons found</p>
-					<p className="text-gray-400 mt-2">
-						Start a daemon with <code className="bg-gray-100 px-2 py-1 rounded">ralph-daemon</code>{" "}
-						in your project directory
+					<p className="text-gray-500 dark:text-gray-400 text-lg">No daemons found</p>
+					<p className="text-gray-400 dark:text-gray-500 mt-2">
+						Start a daemon with{" "}
+						<code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">ralph-daemon</code> in
+						your project directory
 					</p>
-					<p className="text-gray-400 mt-4 text-sm">
+					<p className="text-gray-400 dark:text-gray-500 mt-4 text-sm">
 						Configure daemon URLs via VITE_DAEMON_URLS environment variable
 					</p>
 				</div>
@@ -152,7 +182,7 @@ export function App() {
 				<>
 					{/* Daemons Section */}
 					<section className="mb-8">
-						<h2 className="text-lg font-semibold text-gray-900 mb-4">
+						<h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
 							Daemons ({healthyDaemons.length}/{daemons.length} online)
 						</h2>
 						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -165,7 +195,7 @@ export function App() {
 					{/* Running PRDs Section */}
 					{runningPRDs.length > 0 && (
 						<section className="mb-8">
-							<h2 className="text-lg font-semibold text-gray-900 mb-4">
+							<h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
 								Running ({runningPRDs.length})
 							</h2>
 							<div className="grid gap-4 md:grid-cols-2">
@@ -185,11 +215,11 @@ export function App() {
 
 					{/* All PRDs Section */}
 					<section>
-						<h2 className="text-lg font-semibold text-gray-900 mb-4">
+						<h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
 							All PRDs ({allPRDs.length})
 						</h2>
 						{allPRDs.length === 0 ? (
-							<p className="text-gray-500">No PRDs found in connected daemons</p>
+							<p className="text-gray-500 dark:text-gray-400">No PRDs found in connected daemons</p>
 						) : (
 							<div className="grid gap-4 md:grid-cols-2">
 								{allPRDs.map(({ prd, daemonId, daemonHost, daemonPort, daemonName }) => (

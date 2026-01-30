@@ -17,12 +17,18 @@ interface LogViewerProps {
  * Memoized log line component for performance
  */
 const LogLine = memo(function LogLine({ log }: { log: LogEntry }) {
-	const time = new Date(log.timestamp).toLocaleTimeString();
+	const time = new Date(log.timestamp).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
 
 	return (
-		<div className="flex gap-2 hover:bg-gray-800/50">
-			<span className="text-gray-500 flex-shrink-0 select-none">{time}</span>
-			<span className="text-gray-100 whitespace-pre-wrap break-all">{log.line}</span>
+		<div className="flex gap-2 hover:bg-gray-800/50 py-0.5">
+			<span className="text-gray-500 flex-shrink-0 select-none text-[10px] sm:text-xs">{time}</span>
+			<span className="text-gray-100 whitespace-pre-wrap break-all text-xs sm:text-sm">
+				{log.line}
+			</span>
 		</div>
 	);
 });
@@ -88,13 +94,13 @@ export function LogViewer({ logs, maxHeight = "400px", onClear }: LogViewerProps
 			<div
 				ref={containerRef}
 				onScroll={handleScroll}
-				className="bg-gray-900 rounded-lg p-4 font-mono text-sm overflow-auto"
+				className="bg-gray-900 rounded-lg p-3 sm:p-4 font-mono overflow-auto"
 				style={{ maxHeight }}
 			>
 				{logs.length === 0 ? (
-					<div className="text-gray-500 italic">No logs yet...</div>
+					<div className="text-gray-500 italic text-sm">No logs yet...</div>
 				) : (
-					<div className="space-y-0.5">
+					<div className="space-y-0">
 						{logs.map((log, index) => (
 							<LogLine key={`${log.timestamp}-${index}`} log={log} />
 						))}
@@ -107,9 +113,9 @@ export function LogViewer({ logs, maxHeight = "400px", onClear }: LogViewerProps
 				<button
 					type="button"
 					onClick={jumpToBottom}
-					className="absolute bottom-4 right-4 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-full shadow-lg hover:bg-blue-700 transition-colors"
+					className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 px-3 py-2 sm:py-1.5 text-xs font-medium text-white bg-blue-600 rounded-full shadow-lg hover:bg-blue-700 transition-colors touch-manipulation"
 				>
-					↓ Jump to bottom
+					↓ Bottom
 				</button>
 			)}
 
@@ -119,7 +125,7 @@ export function LogViewer({ logs, maxHeight = "400px", onClear }: LogViewerProps
 					<button
 						type="button"
 						onClick={onClear}
-						className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors"
+						className="px-2 py-1.5 sm:py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors touch-manipulation"
 					>
 						Clear
 					</button>
