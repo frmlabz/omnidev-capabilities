@@ -19,6 +19,7 @@ export interface RunningOperation {
 	prdName: string;
 	operation: "develop" | "test";
 	startedAt: string;
+	abortController?: AbortController;
 }
 
 /**
@@ -66,13 +67,17 @@ export class ProcessManager {
 
 	/**
 	 * Mark a PRD as running (for lib-based operations)
+	 * Returns an AbortController that can be used to cancel the operation
 	 */
-	markRunning(prdName: string, operation: "develop" | "test"): void {
+	markRunning(prdName: string, operation: "develop" | "test"): AbortController {
+		const abortController = new AbortController();
 		this.runningOperations.set(prdName, {
 			prdName,
 			operation,
 			startedAt: new Date().toISOString(),
+			abortController,
 		});
+		return abortController;
 	}
 
 	/**
@@ -80,6 +85,19 @@ export class ProcessManager {
 	 */
 	markStopped(prdName: string): void {
 		this.runningOperations.delete(prdName);
+	}
+
+	/**
+	 * Abort a running lib-based operation
+	 */
+	abortOperation(prdName: string): boolean {
+		const op = this.runningOperations.get(prdName);
+		if (op?.abortController) {
+			op.abortController.abort();
+			this.runningOperations.delete(prdName);
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -138,9 +156,15 @@ export class ProcessManager {
 	}
 
 	/**
-	 * Stop a process for a PRD
+	 * Stop a process or operation for a PRD
 	 */
 	async stop(prdName: string): Promise<boolean> {
+		// Try to stop lib-based operation first
+		if (this.abortOperation(prdName)) {
+			return true;
+		}
+
+		// Try to stop spawned process
 		const managed = this.processes.get(prdName);
 		if (!managed) return false;
 
@@ -154,9 +178,18 @@ export class ProcessManager {
 	}
 
 	/**
-	 * Stop all processes
+	 * Stop all processes and operations
 	 */
 	async stopAll(): Promise<void> {
+		// Stop all lib-based operations
+		for (const op of this.runningOperations.values()) {
+			if (op.abortController) {
+				op.abortController.abort();
+			}
+		}
+		this.runningOperations.clear();
+
+		// Stop all spawned processes
 		const prds = Array.from(this.processes.keys());
 		await Promise.all(prds.map((prd) => this.stop(prd)));
 	}

@@ -202,6 +202,28 @@ export function createApp(options: {
 		} satisfies ApiResponse<{ status: string }>);
 	});
 
+	// Kill daemon - stops all processes and exits
+	app.post("/api/kill", async (c) => {
+		// Stop all running processes/operations
+		await processManager.stopAll();
+
+		// Broadcast shutdown
+		wsManager.broadcast({
+			type: "daemon:shutdown",
+			timestamp: new Date().toISOString(),
+		});
+
+		// Schedule daemon exit after response is sent
+		setTimeout(() => {
+			process.exit(0);
+		}, 100);
+
+		return c.json({
+			ok: true,
+			data: { message: "Daemon shutting down" },
+		} satisfies ApiResponse<{ message: string }>);
+	});
+
 	// Daemon info
 	app.get("/api/info", (c) => {
 		const reg = registry.getRegistration();
@@ -795,8 +817,8 @@ export function createApp(options: {
 
 		const targetWorktree = matchingWorktree ?? mainWorktree;
 
-		// Mark as running
-		processManager.markRunning(name, "develop");
+		// Mark as running and get abort controller
+		const abortController = processManager.markRunning(name, "develop");
 
 		wsManager.broadcast({
 			type: "prd:status",
@@ -830,6 +852,7 @@ export function createApp(options: {
 
 				const result = await startDevelopment(name, {
 					hasWorktree: true,
+					signal: abortController.signal,
 					onEvent: (event: OrchestratorEvent) => {
 						// Log and stream events
 						if (event.type === "log") {
@@ -990,8 +1013,8 @@ export function createApp(options: {
 			);
 		}
 
-		// Mark as running
-		processManager.markRunning(name, "test");
+		// Mark as running and get abort controller
+		const abortController = processManager.markRunning(name, "test");
 
 		wsManager.broadcast({
 			type: "prd:status",
@@ -1025,6 +1048,7 @@ export function createApp(options: {
 
 				const result = await runTests(name, {
 					hasWorktree: matchingWorktree !== undefined,
+					signal: abortController.signal,
 					onEvent: (event: OrchestratorEvent) => {
 						// Log and stream events
 						if (event.type === "log") {

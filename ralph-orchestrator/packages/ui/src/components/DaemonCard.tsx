@@ -2,17 +2,37 @@
  * Daemon Card Component
  */
 
+import { useState } from "react";
 import type { DaemonWithStatus } from "../lib/daemon-client";
 import { StatusBadge } from "./StatusBadge";
 
 interface DaemonCardProps {
 	daemon: DaemonWithStatus;
+	onKill?: () => void;
 }
 
-export function DaemonCard({ daemon }: DaemonCardProps) {
+export function DaemonCard({ daemon, onKill }: DaemonCardProps) {
 	const { registration, healthy, stale, prds } = daemon;
 	const status = healthy ? "healthy" : stale ? "stale" : "unhealthy";
 	const runningCount = prds.filter((p) => p.isRunning).length;
+	const [killing, setKilling] = useState(false);
+
+	const handleKill = async () => {
+		if (!confirm(`Kill daemon "${registration.projectName}"? This will stop all running agents.`)) {
+			return;
+		}
+
+		setKilling(true);
+		try {
+			const url = `http://${registration.host}:${registration.port}/api/kill`;
+			await fetch(url, { method: "POST" });
+			onKill?.();
+		} catch (err) {
+			console.error("Failed to kill daemon:", err);
+		} finally {
+			setKilling(false);
+		}
+	};
 
 	return (
 		<div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm transition-all">
@@ -36,7 +56,20 @@ export function DaemonCard({ daemon }: DaemonCardProps) {
 						)}
 					</div>
 				</div>
-				<StatusBadge status={status} />
+				<div className="flex items-center gap-2">
+					<StatusBadge status={status} />
+					{healthy && (
+						<button
+							type="button"
+							onClick={handleKill}
+							disabled={killing}
+							className="px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
+							title="Kill daemon"
+						>
+							{killing ? "..." : "Kill"}
+						</button>
+					)}
+				</div>
 			</div>
 			{healthy && daemon.latencyMs !== undefined && (
 				<p className="mt-2 text-xs text-gray-400 dark:text-gray-500">

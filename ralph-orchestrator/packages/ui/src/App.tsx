@@ -276,7 +276,11 @@ export function App() {
 						</h2>
 						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 							{daemons.map((daemon) => (
-								<DaemonCard key={daemon.registration.id} daemon={daemon} />
+								<DaemonCard
+									key={daemon.registration.id}
+									daemon={daemon}
+									onKill={() => setTimeout(refetch, 500)}
+								/>
 							))}
 						</div>
 					</section>

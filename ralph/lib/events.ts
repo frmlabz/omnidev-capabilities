@@ -83,10 +83,6 @@ export class Orchestrator extends EventEmitter {
 	private currentStory: Story | null = null;
 	private abortController: AbortController | null = null;
 
-	constructor() {
-		super();
-	}
-
 	/**
 	 * Emit a typed event
 	 */

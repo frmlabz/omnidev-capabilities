@@ -142,7 +142,8 @@ export type WebSocketEvent =
 			timestamp: string;
 	  }
 	| { type: "worktree:created"; worktree: string; prdName: string; timestamp: string }
-	| { type: "worktree:merged"; worktree: string; prdName: string; timestamp: string };
+	| { type: "worktree:merged"; worktree: string; prdName: string; timestamp: string }
+	| { type: "daemon:shutdown"; timestamp: string };
 
 /**
  * WebSocket command types (Client → Daemon)
