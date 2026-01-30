@@ -1,8 +1,8 @@
 /**
  * Main App Component
  *
- * Dashboard showing all connected daemons and their PRDs.
- * For MVP, daemon URLs are configured via environment variable.
+ * Dashboard showing all connected daemons, worktrees, and PRDs.
+ * Daemons are automatically discovered from the local registry.
  */
 
 import { useState } from "react";
@@ -10,11 +10,13 @@ import { useQuery } from "@tanstack/react-query";
 import { DaemonCard } from "./components/DaemonCard";
 import { PRDCard } from "./components/PRDCard";
 import { PRDDetailPage } from "./components/PRDDetailPage";
+import { WorktreeCard } from "./components/WorktreeCard";
+import { WorktreeDetailPage } from "./components/WorktreeDetailPage";
 import { DaemonGridSkeleton, PRDGridSkeleton } from "./components/LoadingSkeleton";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { fetchDaemonStatus, type DaemonWithStatus } from "./lib/daemon-client";
+import { createDaemonClient, fetchDaemonStatus, type DaemonWithStatus } from "./lib/daemon-client";
 import { WebSocketProvider } from "./lib/websocket";
-import type { DaemonRegistration, PRDSummary } from "./lib/schemas";
+import type { DaemonRegistration, PRDSummary, WorktreeSummary } from "./lib/schemas";
 
 /**
  * Selected PRD state for navigation
@@ -27,19 +29,45 @@ interface SelectedPRD {
 }
 
 /**
- * Parse daemon URLs from environment or use defaults
+ * Selected Worktree state for navigation
+ */
+interface SelectedWorktree {
+	worktree: WorktreeSummary;
+	daemonHost: string;
+	daemonPort: number;
+}
+
+/**
+ * Discover daemons from the server's registry
+ */
+async function discoverDaemons(): Promise<DaemonRegistration[]> {
+	try {
+		const response = await fetch("/api/discover");
+		const data = await response.json();
+
+		if (data.ok && Array.isArray(data.daemons)) {
+			return data.daemons;
+		}
+
+		return [];
+	} catch {
+		// Fallback to env var if discovery fails
+		return parseDaemonUrlsFallback();
+	}
+}
+
+/**
+ * Fallback: Parse daemon URLs from environment
  * Format: host:port,host:port,...
  */
-function parseDaemonUrls(): DaemonRegistration[] {
-	// Default to localhost:12345 for development
-	// In production, set VITE_DAEMON_URLS env var
-	const urlsStr = import.meta.env.VITE_DAEMON_URLS || "127.0.0.1:12345";
+function parseDaemonUrlsFallback(): DaemonRegistration[] {
+	const urlsStr = import.meta.env.VITE_DAEMON_URLS;
+	if (!urlsStr) return [];
 
 	return urlsStr.split(",").map((url: string, index: number) => {
 		const [host, portStr] = url.trim().split(":");
 		const port = Number.parseInt(portStr || "12345", 10);
 
-		// Create a mock registration for direct URL connections
 		return {
 			schemaVersion: 1 as const,
 			id: `manual-${index}`,
@@ -54,26 +82,61 @@ function parseDaemonUrls(): DaemonRegistration[] {
 	});
 }
 
-async function fetchAllDaemons(): Promise<DaemonWithStatus[]> {
-	const registrations = parseDaemonUrls();
-	const results = await Promise.all(registrations.map(fetchDaemonStatus));
+interface DaemonData {
+	daemon: DaemonWithStatus;
+	worktrees: WorktreeSummary[];
+}
+
+async function fetchAllDaemonData(): Promise<DaemonData[]> {
+	const registrations = await discoverDaemons();
+	const results = await Promise.all(
+		registrations.map(async (reg) => {
+			const daemon = await fetchDaemonStatus(reg);
+
+			// Fetch worktrees if daemon is healthy
+			let worktrees: WorktreeSummary[] = [];
+			if (daemon.healthy) {
+				try {
+					const client = createDaemonClient(reg.host, reg.port);
+					worktrees = await client.getWorktrees();
+				} catch {
+					// Ignore errors fetching worktrees
+				}
+			}
+
+			return { daemon, worktrees };
+		}),
+	);
 	return results;
 }
 
 export function App() {
 	const [selectedPrd, setSelectedPrd] = useState<SelectedPRD | null>(null);
+	const [selectedWorktree, setSelectedWorktree] = useState<SelectedWorktree | null>(null);
 
 	const {
-		data: daemons = [],
+		data: daemonData = [],
 		isLoading,
 		error,
 		refetch,
 	} = useQuery({
 		queryKey: ["daemons"],
-		queryFn: fetchAllDaemons,
+		queryFn: fetchAllDaemonData,
 	});
 
+	const daemons = daemonData.map((d) => d.daemon);
 	const healthyDaemons = daemons.filter((d) => d.healthy);
+
+	const allWorktrees = daemonData
+		.filter((d) => d.daemon.healthy)
+		.flatMap((d) =>
+			d.worktrees.map((wt) => ({
+				worktree: wt,
+				daemonHost: d.daemon.registration.host,
+				daemonPort: d.daemon.registration.port,
+			})),
+		);
+
 	const allPRDs = healthyDaemons.flatMap((d) =>
 		d.prds.map((prd) => ({
 			prd,
@@ -95,14 +158,40 @@ export function App() {
 		setSelectedPrd(prdData);
 	};
 
+	// Handle worktree selection for navigation
+	const handleWorktreeClick = (wtData: {
+		worktree: WorktreeSummary;
+		daemonHost: string;
+		daemonPort: number;
+	}) => {
+		setSelectedWorktree(wtData);
+	};
+
 	// Handle back navigation
 	const handleBack = () => {
 		setSelectedPrd(null);
+		setSelectedWorktree(null);
 		// Refresh data when returning to dashboard
 		refetch();
 	};
 
-	// Detail page view
+	// Worktree detail page view
+	if (selectedWorktree) {
+		return (
+			<WebSocketProvider host={selectedWorktree.daemonHost} port={selectedWorktree.daemonPort}>
+				<div className="max-w-6xl mx-auto px-4 py-8">
+					<WorktreeDetailPage
+						worktree={selectedWorktree.worktree}
+						daemonHost={selectedWorktree.daemonHost}
+						daemonPort={selectedWorktree.daemonPort}
+						onBack={handleBack}
+					/>
+				</div>
+			</WebSocketProvider>
+		);
+	}
+
+	// PRD detail page view
 	if (selectedPrd) {
 		return (
 			<WebSocketProvider host={selectedPrd.daemonHost} port={selectedPrd.daemonPort}>
@@ -191,6 +280,24 @@ export function App() {
 							))}
 						</div>
 					</section>
+
+					{/* Worktrees Section */}
+					{allWorktrees.length > 0 && (
+						<section className="mb-8">
+							<h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+								Worktrees ({allWorktrees.length})
+							</h2>
+							<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+								{allWorktrees.map(({ worktree, daemonHost, daemonPort }) => (
+									<WorktreeCard
+										key={`${daemonHost}:${daemonPort}-${worktree.name}`}
+										worktree={worktree}
+										onClick={() => handleWorktreeClick({ worktree, daemonHost, daemonPort })}
+									/>
+								))}
+							</div>
+						</section>
+					)}
 
 					{/* Running PRDs Section */}
 					{runningPRDs.length > 0 && (

@@ -2,7 +2,11 @@
  * Ring Buffer for Log Storage
  *
  * Stores the last N log lines per PRD, automatically evicting old entries.
+ * Also writes to files for persistence and easy tailing.
  */
+
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 export interface LogEntry {
 	timestamp: string;
@@ -95,13 +99,28 @@ export class LogBuffer {
 
 /**
  * Manages log buffers for multiple PRDs
+ * Writes to both memory buffer and files for persistence
  */
 export class LogManager {
 	private buffers: Map<string, LogBuffer> = new Map();
 	private readonly bufferCapacity: number;
+	private readonly logsDir: string;
 
-	constructor(bufferCapacity: number = 1000) {
+	constructor(projectPath: string, bufferCapacity: number = 1000) {
 		this.bufferCapacity = bufferCapacity;
+		this.logsDir = join(projectPath, ".omni", "logs");
+
+		// Ensure logs directory exists
+		if (!existsSync(this.logsDir)) {
+			mkdirSync(this.logsDir, { recursive: true });
+		}
+	}
+
+	/**
+	 * Get log file path for a PRD
+	 */
+	getLogFilePath(prdName: string): string {
+		return join(this.logsDir, `${prdName}.log`);
 	}
 
 	/**
@@ -117,18 +136,32 @@ export class LogManager {
 	}
 
 	/**
-	 * Add a log line for a PRD
+	 * Add a log line for a PRD (writes to both memory and file)
 	 */
 	log(prdName: string, line: string): LogEntry {
-		return this.getBuffer(prdName).push(line);
+		const entry = this.getBuffer(prdName).push(line);
+
+		// Append to file
+		const logFile = this.getLogFilePath(prdName);
+		const logLine = `${entry.timestamp} ${line}\n`;
+		try {
+			appendFileSync(logFile, logLine);
+		} catch {
+			// Ignore write errors
+		}
+
+		return entry;
 	}
 
 	/**
-	 * Get logs for a PRD
+	 * Get logs for a PRD (from memory buffer)
 	 */
 	getLogs(prdName: string, tail?: number): LogEntry[] {
 		const buffer = this.buffers.get(prdName);
-		if (!buffer) return [];
+		if (!buffer) {
+			// Try to load from file if buffer is empty
+			return this.loadLogsFromFile(prdName, tail);
+		}
 
 		if (tail !== undefined) {
 			return buffer.getTail(tail);
@@ -137,10 +170,54 @@ export class LogManager {
 	}
 
 	/**
-	 * Clear logs for a PRD
+	 * Load logs from file (for when memory buffer is empty)
+	 */
+	private loadLogsFromFile(prdName: string, tail?: number): LogEntry[] {
+		const logFile = this.getLogFilePath(prdName);
+		if (!existsSync(logFile)) {
+			return [];
+		}
+
+		try {
+			const content = readFileSync(logFile, "utf-8");
+			let lines = content.split("\n").filter((line) => line.trim());
+
+			if (tail !== undefined && lines.length > tail) {
+				lines = lines.slice(-tail);
+			}
+
+			return lines.map((line) => {
+				// Parse timestamp from line (format: "2024-01-30T12:00:00.000Z message")
+				const spaceIdx = line.indexOf(" ");
+				if (spaceIdx > 0) {
+					return {
+						timestamp: line.substring(0, spaceIdx),
+						line: line.substring(spaceIdx + 1),
+					};
+				}
+				return {
+					timestamp: new Date().toISOString(),
+					line,
+				};
+			});
+		} catch {
+			return [];
+		}
+	}
+
+	/**
+	 * Clear logs for a PRD (both memory and file)
 	 */
 	clearLogs(prdName: string): void {
 		this.buffers.delete(prdName);
+
+		// Clear the file
+		const logFile = this.getLogFilePath(prdName);
+		try {
+			writeFileSync(logFile, "");
+		} catch {
+			// Ignore
+		}
 	}
 
 	/**

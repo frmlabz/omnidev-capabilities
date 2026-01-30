@@ -5,10 +5,20 @@
 import { z } from "zod";
 
 /**
- * PRD Status
+ * PRD Status (from ralph lib)
  */
 export const PRDStatusSchema = z.enum(["pending", "testing", "completed"]);
 export type PRDStatus = z.infer<typeof PRDStatusSchema>;
+
+/**
+ * PRD Display State (computed by daemon)
+ * pending = PRD in pending, no worktree
+ * in_progress = PRD in pending, has worktree (being developed)
+ * testing = PRD in testing
+ * completed = PRD completed, ready to merge
+ */
+export const PRDDisplayStateSchema = z.enum(["pending", "in_progress", "testing", "completed"]);
+export type PRDDisplayState = z.infer<typeof PRDDisplayStateSchema>;
 
 /**
  * Story Status
@@ -43,29 +53,62 @@ export const PRDMetricsSchema = z.object({
 export type PRDMetrics = z.infer<typeof PRDMetricsSchema>;
 
 /**
- * PRD Summary (list view)
+ * PRD Summary (list view) - enriched by daemon
  */
 export const PRDSummarySchema = z.object({
 	name: z.string(),
-	status: PRDStatusSchema,
 	description: z.string(),
-	progress: z.object({
-		completed: z.number(),
-		total: z.number(),
-		inProgress: z.number(),
-		blocked: z.number(),
-	}),
-	canStart: z.boolean(),
-	hasBlockedStories: z.boolean(),
-	dependencies: z.array(z.string()),
-	unmetDependencies: z.array(z.string()),
+	status: PRDStatusSchema,
+	displayState: PRDDisplayStateSchema,
+	storyCount: z.number(),
+	completedStories: z.number(),
+	blockedStories: z.number(),
+	createdAt: z.string(),
 	startedAt: z.string().optional(),
 	completedAt: z.string().optional(),
-	metrics: PRDMetricsSchema.optional(),
-	isRunning: z.boolean().optional(),
-	runningOperation: z.enum(["develop", "test"]).optional(),
+	worktree: z.string().nullable(),
+	worktreePath: z.string(),
+	isRunning: z.boolean(),
+	runningOperation: z.string().optional(),
 });
 export type PRDSummary = z.infer<typeof PRDSummarySchema>;
+
+/**
+ * Command Status
+ */
+export const CommandStatusSchema = z.enum(["running", "success", "failed"]);
+export type CommandStatus = z.infer<typeof CommandStatusSchema>;
+
+/**
+ * Worktree Summary
+ */
+export const WorktreeSummarySchema = z.object({
+	name: z.string(),
+	path: z.string(),
+	branch: z.string(),
+	isMain: z.boolean(),
+	prdName: z.string().nullable(),
+	runningCommands: z.array(z.string()),
+});
+export type WorktreeSummary = z.infer<typeof WorktreeSummarySchema>;
+
+/**
+ * Command Config
+ */
+export const CommandConfigSchema = z.object({
+	label: z.string(),
+	command: z.string(),
+});
+export type CommandConfig = z.infer<typeof CommandConfigSchema>;
+
+/**
+ * Daemon Config
+ */
+export const DaemonConfigSchema = z.object({
+	mainWorktree: z.string(),
+	commands: z.record(z.string(), CommandConfigSchema),
+});
+export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 
 /**
  * Daemon Info

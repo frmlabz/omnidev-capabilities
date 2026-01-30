@@ -1,7 +1,11 @@
 /**
  * PRD Detail Page Component
  *
- * Shows detailed PRD information with real-time logs and action controls.
+ * Shows detailed PRD information with real-time logs and state-appropriate actions:
+ * - pending: Start (creates worktree)
+ * - in_progress: Start (resume)
+ * - testing: Test
+ * - completed: Merge
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -9,8 +13,7 @@ import { createDaemonClient } from "../lib/daemon-client";
 import { usePrdLogs } from "../hooks/usePrdLogs";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { LogViewer } from "./LogViewer";
-import { StatusBadge } from "./StatusBadge";
-import type { PRDSummary } from "../lib/schemas";
+import type { PRDSummary, PRDDisplayState } from "../lib/schemas";
 
 interface PRDDetailPageProps {
 	prd: PRDSummary;
@@ -21,15 +24,94 @@ interface PRDDetailPageProps {
 }
 
 /**
- * PRD Detail Page
- *
- * Features:
- * - Back button to return to dashboard
- * - PRD name, description, status badge
- * - Progress bar showing completed/total stories
- * - Start/Stop/Test action buttons
- * - Embedded LogViewer with real-time logs
+ * Get display info for a PRD state
  */
+function getStateDisplay(state: PRDDisplayState): {
+	label: string;
+	color: string;
+	bgColor: string;
+} {
+	switch (state) {
+		case "pending":
+			return {
+				label: "Pending",
+				color: "text-gray-700 dark:text-gray-300",
+				bgColor: "bg-gray-100 dark:bg-gray-700",
+			};
+		case "in_progress":
+			return {
+				label: "In Progress",
+				color: "text-blue-700 dark:text-blue-300",
+				bgColor: "bg-blue-100 dark:bg-blue-900/50",
+			};
+		case "testing":
+			return {
+				label: "Testing",
+				color: "text-yellow-700 dark:text-yellow-300",
+				bgColor: "bg-yellow-100 dark:bg-yellow-900/50",
+			};
+		case "completed":
+			return {
+				label: "Completed",
+				color: "text-green-700 dark:text-green-300",
+				bgColor: "bg-green-100 dark:bg-green-900/50",
+			};
+	}
+}
+
+/**
+ * Get action button config for a PRD state
+ */
+function getActionConfig(
+	state: PRDDisplayState,
+	isRunning: boolean,
+): {
+	action: "start" | "test" | "merge" | "stop";
+	label: string;
+	loadingLabel: string;
+	color: string;
+} | null {
+	if (isRunning) {
+		return {
+			action: "stop",
+			label: "Stop",
+			loadingLabel: "Stopping...",
+			color: "bg-red-600 hover:bg-red-700",
+		};
+	}
+
+	switch (state) {
+		case "pending":
+			return {
+				action: "start",
+				label: "Start Development",
+				loadingLabel: "Creating worktree...",
+				color: "bg-green-600 hover:bg-green-700",
+			};
+		case "in_progress":
+			return {
+				action: "start",
+				label: "Resume Development",
+				loadingLabel: "Starting...",
+				color: "bg-green-600 hover:bg-green-700",
+			};
+		case "testing":
+			return {
+				action: "test",
+				label: "Run Tests",
+				loadingLabel: "Starting tests...",
+				color: "bg-blue-600 hover:bg-blue-700",
+			};
+		case "completed":
+			return {
+				action: "merge",
+				label: "Merge to Main",
+				loadingLabel: "Merging...",
+				color: "bg-purple-600 hover:bg-purple-700",
+			};
+	}
+}
+
 export function PRDDetailPage({
 	prd,
 	daemonHost,
@@ -52,7 +134,7 @@ export function PRDDetailPage({
 		initialLogs,
 	});
 
-	// Start mutation
+	// Start mutation (creates worktree if needed)
 	const startMutation = useMutation({
 		mutationFn: () => client.startPRD(prd.name),
 		onSuccess: () => {
@@ -76,11 +158,61 @@ export function PRDDetailPage({
 		},
 	});
 
+	// Merge mutation
+	const mergeMutation = useMutation({
+		mutationFn: () => client.mergePRD(prd.name),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["daemons"] });
+			// Go back after successful merge
+			onBack();
+		},
+	});
+
 	const progressPercent =
-		prd.progress.total > 0 ? Math.round((prd.progress.completed / prd.progress.total) * 100) : 0;
+		prd.storyCount > 0 ? Math.round((prd.completedStories / prd.storyCount) * 100) : 0;
 
 	const isRunning = prd.isRunning;
-	const isMutating = startMutation.isPending || stopMutation.isPending || testMutation.isPending;
+	const isMutating =
+		startMutation.isPending ||
+		stopMutation.isPending ||
+		testMutation.isPending ||
+		mergeMutation.isPending;
+
+	const stateDisplay = getStateDisplay(prd.displayState);
+	const actionConfig = getActionConfig(prd.displayState, isRunning);
+
+	const handleAction = () => {
+		if (!actionConfig) return;
+
+		switch (actionConfig.action) {
+			case "start":
+				startMutation.mutate();
+				break;
+			case "stop":
+				stopMutation.mutate();
+				break;
+			case "test":
+				testMutation.mutate();
+				break;
+			case "merge":
+				mergeMutation.mutate();
+				break;
+		}
+	};
+
+	const getIsActionPending = () => {
+		if (!actionConfig) return false;
+		switch (actionConfig.action) {
+			case "start":
+				return startMutation.isPending;
+			case "stop":
+				return stopMutation.isPending;
+			case "test":
+				return testMutation.isPending;
+			case "merge":
+				return mergeMutation.isPending;
+		}
+	};
 
 	return (
 		<div className="space-y-6">
@@ -125,8 +257,16 @@ export function PRDDetailPage({
 						<p className="text-gray-600 dark:text-gray-300">{prd.description}</p>
 					</div>
 					<div className="flex gap-2 ml-4">
-						<StatusBadge status={prd.status} />
-						{isRunning && <StatusBadge status="running" />}
+						<span
+							className={`px-2 py-1 rounded text-xs font-medium ${stateDisplay.color} ${stateDisplay.bgColor}`}
+						>
+							{stateDisplay.label}
+						</span>
+						{isRunning && (
+							<span className="px-2 py-1 rounded text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/50 animate-pulse">
+								Running
+							</span>
+						)}
 					</div>
 				</div>
 
@@ -134,7 +274,7 @@ export function PRDDetailPage({
 				<div className="mb-6">
 					<div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 mb-2">
 						<span>
-							{prd.progress.completed}/{prd.progress.total} stories completed
+							{prd.completedStories}/{prd.storyCount} stories completed
 						</span>
 						<span>{progressPercent}%</span>
 					</div>
@@ -144,58 +284,46 @@ export function PRDDetailPage({
 							style={{ width: `${progressPercent}%` }}
 						/>
 					</div>
-					{prd.hasBlockedStories && (
+					{prd.blockedStories > 0 && (
 						<p className="mt-2 text-sm text-red-600 dark:text-red-400">
-							{prd.progress.blocked} blocked stories
+							{prd.blockedStories} blocked stories
 						</p>
 					)}
 				</div>
 
-				{/* Action buttons */}
-				<div className="flex flex-col sm:flex-row gap-3">
-					{isRunning ? (
-						<button
-							type="button"
-							onClick={() => stopMutation.mutate()}
-							disabled={isMutating}
-							className="px-4 py-3 sm:py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-						>
-							{stopMutation.isPending ? "Stopping..." : "Stop"}
-						</button>
-					) : (
-						<>
-							<button
-								type="button"
-								onClick={() => startMutation.mutate()}
-								disabled={isMutating || !prd.canStart}
-								className="px-4 py-3 sm:py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-							>
-								{startMutation.isPending ? "Starting..." : "Start Development"}
-							</button>
-							<button
-								type="button"
-								onClick={() => testMutation.mutate()}
-								disabled={isMutating}
-								className="px-4 py-3 sm:py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-							>
-								{testMutation.isPending ? "Starting..." : "Run Tests"}
-							</button>
-						</>
-					)}
-				</div>
-
-				{/* Error display */}
-				{(startMutation.error || stopMutation.error || testMutation.error) && (
-					<div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md text-red-700 dark:text-red-400 text-sm">
-						{(startMutation.error || stopMutation.error || testMutation.error)?.message ||
-							"An error occurred"}
+				{/* Worktree info */}
+				{prd.worktree && (
+					<div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md text-sm text-gray-600 dark:text-gray-400">
+						<span className="font-medium">Worktree:</span> {prd.worktree}
 					</div>
 				)}
 
-				{/* Unmet dependencies warning */}
-				{prd.unmetDependencies.length > 0 && (
-					<div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md text-yellow-800 dark:text-yellow-300 text-sm">
-						<strong>Unmet dependencies:</strong> {prd.unmetDependencies.join(", ")}
+				{/* Action button */}
+				{actionConfig && (
+					<div className="flex flex-col sm:flex-row gap-3">
+						<button
+							type="button"
+							onClick={handleAction}
+							disabled={isMutating}
+							className={`px-4 py-3 sm:py-2 text-sm font-medium text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${actionConfig.color}`}
+						>
+							{getIsActionPending() ? actionConfig.loadingLabel : actionConfig.label}
+						</button>
+					</div>
+				)}
+
+				{/* Error display */}
+				{(startMutation.error ||
+					stopMutation.error ||
+					testMutation.error ||
+					mergeMutation.error) && (
+					<div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md text-red-700 dark:text-red-400 text-sm">
+						{(
+							startMutation.error ||
+							stopMutation.error ||
+							testMutation.error ||
+							mergeMutation.error
+						)?.message || "An error occurred"}
 					</div>
 				)}
 			</div>

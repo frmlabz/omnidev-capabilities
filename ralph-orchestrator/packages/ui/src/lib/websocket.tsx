@@ -14,6 +14,7 @@ import {
 	type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import type { CommandStatus } from "./schemas";
 
 /**
  * WebSocket events from daemon
@@ -23,21 +24,58 @@ export type WebSocketEvent =
 	| { type: "daemon:heartbeat"; timestamp: string }
 	| { type: "prd:status"; prd: string; status: string; timestamp: string }
 	| { type: "prd:log"; prd: string; line: string; timestamp: string }
-	| { type: "prd:progress"; prd: string; story: string; iteration: number };
+	| { type: "prd:progress"; prd: string; story: string; iteration: number }
+	| {
+			type: "worktree:command:start";
+			worktree: string;
+			commandId: string;
+			commandKey: string;
+			timestamp: string;
+	  }
+	| {
+			type: "worktree:command:log";
+			worktree: string;
+			commandId: string;
+			line: string;
+			timestamp: string;
+	  }
+	| {
+			type: "worktree:command:end";
+			worktree: string;
+			commandId: string;
+			status: CommandStatus;
+			exitCode: number;
+			timestamp: string;
+	  };
 
 /**
  * WebSocket commands to daemon
  */
 export type WebSocketCommand =
 	| { type: "subscribe"; prds: string[] }
-	| { type: "unsubscribe"; prds: string[] };
+	| { type: "unsubscribe"; prds: string[] }
+	| { type: "subscribe:worktree"; worktrees: string[] }
+	| { type: "unsubscribe:worktree"; worktrees: string[] };
+
+type SubscriptionType = "prd" | "worktree";
 
 interface WebSocketContextValue {
 	isConnected: boolean;
-	subscribe: (prds: string[]) => void;
-	unsubscribe: (prds: string[]) => void;
+	subscribe: (items: string[], type?: SubscriptionType) => void;
+	unsubscribe: (items: string[], type?: SubscriptionType) => void;
 	addLogListener: (prd: string, callback: (line: string, timestamp: string) => void) => () => void;
 	addStatusListener: (callback: (prd: string, status: string) => void) => () => void;
+	addCommandLogListener: (
+		callback: (worktree: string, commandId: string, line: string, timestamp: string) => void,
+	) => () => void;
+	addCommandEndListener: (
+		callback: (
+			worktree: string,
+			commandId: string,
+			status: CommandStatus,
+			exitCode: number,
+		) => void,
+	) => () => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextValue | null>(null);
@@ -59,10 +97,17 @@ export function WebSocketProvider({ host, port, children }: WebSocketProviderPro
 	const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reconnectAttemptRef = useRef(0);
 	const subscribedPrdsRef = useRef<Set<string>>(new Set());
+	const subscribedWorktreesRef = useRef<Set<string>>(new Set());
 	const logListenersRef = useRef<Map<string, Set<(line: string, timestamp: string) => void>>>(
 		new Map(),
 	);
 	const statusListenersRef = useRef<Set<(prd: string, status: string) => void>>(new Set());
+	const commandLogListenersRef = useRef<
+		Set<(worktree: string, commandId: string, line: string, timestamp: string) => void>
+	>(new Set());
+	const commandEndListenersRef = useRef<
+		Set<(worktree: string, commandId: string, status: CommandStatus, exitCode: number) => void>
+	>(new Set());
 	const queryClient = useQueryClient();
 
 	const connect = useCallback(() => {
@@ -83,6 +128,15 @@ export function WebSocketProvider({ host, port, children }: WebSocketProviderPro
 				const cmd: WebSocketCommand = {
 					type: "subscribe",
 					prds: Array.from(subscribedPrdsRef.current),
+				};
+				ws.send(JSON.stringify(cmd));
+			}
+
+			// Re-subscribe to any worktrees we were tracking
+			if (subscribedWorktreesRef.current.size > 0) {
+				const cmd: WebSocketCommand = {
+					type: "subscribe:worktree",
+					worktrees: Array.from(subscribedWorktreesRef.current),
 				};
 				ws.send(JSON.stringify(cmd));
 			}
@@ -112,6 +166,22 @@ export function WebSocketProvider({ host, port, children }: WebSocketProviderPro
 						}
 						break;
 					}
+
+					case "worktree:command:log":
+						// Notify command log listeners
+						for (const listener of commandLogListenersRef.current) {
+							listener(data.worktree, data.commandId, data.line, data.timestamp);
+						}
+						break;
+
+					case "worktree:command:end":
+						// Notify command end listeners
+						for (const listener of commandEndListenersRef.current) {
+							listener(data.worktree, data.commandId, data.status, data.exitCode);
+						}
+						// Invalidate worktrees query
+						queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+						break;
 
 					case "daemon:heartbeat":
 						// Could update last seen timestamp
@@ -156,25 +226,47 @@ export function WebSocketProvider({ host, port, children }: WebSocketProviderPro
 		};
 	}, [connect]);
 
-	const subscribe = useCallback((prds: string[]) => {
-		for (const prd of prds) {
-			subscribedPrdsRef.current.add(prd);
-		}
+	const subscribe = useCallback((items: string[], type: SubscriptionType = "prd") => {
+		if (type === "prd") {
+			for (const item of items) {
+				subscribedPrdsRef.current.add(item);
+			}
 
-		if (wsRef.current?.readyState === WebSocket.OPEN) {
-			const cmd: WebSocketCommand = { type: "subscribe", prds };
-			wsRef.current.send(JSON.stringify(cmd));
+			if (wsRef.current?.readyState === WebSocket.OPEN) {
+				const cmd: WebSocketCommand = { type: "subscribe", prds: items };
+				wsRef.current.send(JSON.stringify(cmd));
+			}
+		} else {
+			for (const item of items) {
+				subscribedWorktreesRef.current.add(item);
+			}
+
+			if (wsRef.current?.readyState === WebSocket.OPEN) {
+				const cmd: WebSocketCommand = { type: "subscribe:worktree", worktrees: items };
+				wsRef.current.send(JSON.stringify(cmd));
+			}
 		}
 	}, []);
 
-	const unsubscribe = useCallback((prds: string[]) => {
-		for (const prd of prds) {
-			subscribedPrdsRef.current.delete(prd);
-		}
+	const unsubscribe = useCallback((items: string[], type: SubscriptionType = "prd") => {
+		if (type === "prd") {
+			for (const item of items) {
+				subscribedPrdsRef.current.delete(item);
+			}
 
-		if (wsRef.current?.readyState === WebSocket.OPEN) {
-			const cmd: WebSocketCommand = { type: "unsubscribe", prds };
-			wsRef.current.send(JSON.stringify(cmd));
+			if (wsRef.current?.readyState === WebSocket.OPEN) {
+				const cmd: WebSocketCommand = { type: "unsubscribe", prds: items };
+				wsRef.current.send(JSON.stringify(cmd));
+			}
+		} else {
+			for (const item of items) {
+				subscribedWorktreesRef.current.delete(item);
+			}
+
+			if (wsRef.current?.readyState === WebSocket.OPEN) {
+				const cmd: WebSocketCommand = { type: "unsubscribe:worktree", worktrees: items };
+				wsRef.current.send(JSON.stringify(cmd));
+			}
 		}
 	}, []);
 
@@ -206,12 +298,41 @@ export function WebSocketProvider({ host, port, children }: WebSocketProviderPro
 		};
 	}, []);
 
+	const addCommandLogListener = useCallback(
+		(callback: (worktree: string, commandId: string, line: string, timestamp: string) => void) => {
+			commandLogListenersRef.current.add(callback);
+			return () => {
+				commandLogListenersRef.current.delete(callback);
+			};
+		},
+		[],
+	);
+
+	const addCommandEndListener = useCallback(
+		(
+			callback: (
+				worktree: string,
+				commandId: string,
+				status: CommandStatus,
+				exitCode: number,
+			) => void,
+		) => {
+			commandEndListenersRef.current.add(callback);
+			return () => {
+				commandEndListenersRef.current.delete(callback);
+			};
+		},
+		[],
+	);
+
 	const value: WebSocketContextValue = {
 		isConnected,
 		subscribe,
 		unsubscribe,
 		addLogListener,
 		addStatusListener,
+		addCommandLogListener,
+		addCommandEndListener,
 	};
 
 	return <WebSocketContext.Provider value={value}>{children}</WebSocketContext.Provider>;

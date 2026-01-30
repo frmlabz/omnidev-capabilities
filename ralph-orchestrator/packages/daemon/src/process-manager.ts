@@ -15,11 +15,18 @@ export interface ManagedProcess {
 	startedAt: string;
 }
 
+export interface RunningOperation {
+	prdName: string;
+	operation: "develop" | "test";
+	startedAt: string;
+}
+
 /**
  * Manages child processes for PRD operations
  */
 export class ProcessManager {
 	private processes: Map<string, ManagedProcess> = new Map();
+	private runningOperations: Map<string, RunningOperation> = new Map();
 	private logManager: LogManager;
 
 	constructor(logManager: LogManager) {
@@ -27,9 +34,15 @@ export class ProcessManager {
 	}
 
 	/**
-	 * Check if a process is running for a PRD
+	 * Check if a process or operation is running for a PRD
 	 */
 	isRunning(prdName: string): boolean {
+		// Check lib-based operations first
+		if (this.runningOperations.has(prdName)) {
+			return true;
+		}
+
+		// Check process-based operations
 		const managed = this.processes.get(prdName);
 		if (!managed) return false;
 
@@ -42,6 +55,31 @@ export class ProcessManager {
 	 */
 	getProcess(prdName: string): ManagedProcess | undefined {
 		return this.processes.get(prdName);
+	}
+
+	/**
+	 * Get info about a running operation (lib-based)
+	 */
+	getOperation(prdName: string): RunningOperation | undefined {
+		return this.runningOperations.get(prdName);
+	}
+
+	/**
+	 * Mark a PRD as running (for lib-based operations)
+	 */
+	markRunning(prdName: string, operation: "develop" | "test"): void {
+		this.runningOperations.set(prdName, {
+			prdName,
+			operation,
+			startedAt: new Date().toISOString(),
+		});
+	}
+
+	/**
+	 * Mark a PRD as stopped (for lib-based operations)
+	 */
+	markStopped(prdName: string): void {
+		this.runningOperations.delete(prdName);
 	}
 
 	/**

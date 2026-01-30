@@ -7,13 +7,17 @@
 import { z } from "zod";
 import {
 	ApiResponseSchema,
+	DaemonConfigSchema,
 	DaemonInfoSchema,
 	LogEntrySchema,
 	PRDSummarySchema,
+	WorktreeSummarySchema,
+	type DaemonConfig,
 	type DaemonInfo,
 	type DaemonRegistration,
 	type LogEntry,
 	type PRDSummary,
+	type WorktreeSummary,
 } from "./schemas";
 
 /**
@@ -138,6 +142,116 @@ export function createDaemonClient(host: string, port: number) {
 			}
 
 			return envelope.data;
+		},
+
+		/**
+		 * Merge PRD (merge worktree into main)
+		 */
+		async mergePRD(name: string): Promise<{ merged: boolean; worktree: string }> {
+			const response = await fetch(`${baseUrl}/api/prds/${encodeURIComponent(name)}/merge`, {
+				method: "POST",
+			});
+			const data = await response.json();
+			const envelope = ApiResponseSchema(
+				z.object({ merged: z.boolean(), worktree: z.string() }),
+			).parse(data);
+
+			if (!envelope.ok || !envelope.data) {
+				throw new Error(envelope.error?.message ?? "Unknown error");
+			}
+
+			return envelope.data;
+		},
+
+		/**
+		 * Get daemon config
+		 */
+		async getConfig(): Promise<DaemonConfig> {
+			return fetchApi("/api/config", DaemonConfigSchema);
+		},
+
+		/**
+		 * Get all worktrees
+		 */
+		async getWorktrees(): Promise<WorktreeSummary[]> {
+			return fetchApi("/api/worktrees", z.array(WorktreeSummarySchema));
+		},
+
+		/**
+		 * Get worktree details
+		 */
+		async getWorktree(name: string): Promise<WorktreeSummary> {
+			return fetchApi(`/api/worktrees/${encodeURIComponent(name)}`, WorktreeSummarySchema);
+		},
+
+		/**
+		 * Run command in worktree
+		 */
+		async runCommand(
+			worktreeName: string,
+			command: string,
+		): Promise<{ commandId: string; started: boolean }> {
+			const response = await fetch(
+				`${baseUrl}/api/worktrees/${encodeURIComponent(worktreeName)}/run`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ command }),
+				},
+			);
+			const data = await response.json();
+			const envelope = ApiResponseSchema(
+				z.object({ commandId: z.string(), started: z.boolean() }),
+			).parse(data);
+
+			if (!envelope.ok || !envelope.data) {
+				throw new Error(envelope.error?.message ?? "Unknown error");
+			}
+
+			return envelope.data;
+		},
+
+		/**
+		 * Stop command in worktree
+		 */
+		async stopCommand(worktreeName: string, commandId: string): Promise<{ stopped: boolean }> {
+			const response = await fetch(
+				`${baseUrl}/api/worktrees/${encodeURIComponent(worktreeName)}/stop`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ commandId }),
+				},
+			);
+			const data = await response.json();
+			const envelope = ApiResponseSchema(z.object({ stopped: z.boolean() })).parse(data);
+
+			if (!envelope.ok || !envelope.data) {
+				throw new Error(envelope.error?.message ?? "Unknown error");
+			}
+
+			return envelope.data;
+		},
+
+		/**
+		 * Get command logs
+		 */
+		async getCommandLogs(
+			worktreeName: string,
+			commandId: string,
+			tail?: number,
+		): Promise<{ logs: string[]; worktree: string; commandId: string }> {
+			const params = new URLSearchParams({ commandId });
+			if (tail) params.set("tail", String(tail));
+
+			return fetchApi(
+				`/api/worktrees/${encodeURIComponent(worktreeName)}/logs?${params}`,
+				z.object({
+					logs: z.array(z.string()),
+					worktree: z.string(),
+					commandId: z.string(),
+				}),
+			);
 		},
 	};
 }

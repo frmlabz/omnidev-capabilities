@@ -13,6 +13,7 @@
 
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
+import { loadConfig } from "./config.js";
 import { LogManager } from "./log-buffer.js";
 import { ProcessManager } from "./process-manager.js";
 import {
@@ -24,7 +25,7 @@ import {
 } from "./registry.js";
 import { createApp, findAvailablePort, startServer, WebSocketManager } from "./server.js";
 
-const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_HOST = "0.0.0.0";
 
 /**
  * Parse command line arguments
@@ -121,9 +122,14 @@ async function startDaemon(host: string, requestedPort?: number) {
 	console.log(`Starting Ralph Orchestrator Daemon for: ${projectName}`);
 	console.log(`Project path: ${projectPath}\n`);
 
+	// Load configuration
+	const config = await loadConfig(projectPath);
+	console.log(`Main worktree: ${config.mainWorktree}`);
+	console.log(`Commands: ${Object.keys(config.commands).join(", ")}\n`);
+
 	// Initialize components
 	const registry = new DaemonRegistry();
-	const logManager = new LogManager();
+	const logManager = new LogManager(projectPath);
 	const processManager = new ProcessManager(logManager);
 	const wsManager = new WebSocketManager(registry);
 
@@ -137,6 +143,7 @@ async function startDaemon(host: string, requestedPort?: number) {
 		processManager,
 		wsManager,
 		projectPath,
+		config,
 	});
 
 	const server = startServer({

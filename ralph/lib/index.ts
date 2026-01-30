@@ -97,3 +97,38 @@ export {
 	runTesting,
 	saveTestReport,
 } from "./testing.js";
+
+// Event-based API (for daemon integration)
+export {
+	createOrchestrator,
+	Orchestrator,
+	type OrchestratorEvent,
+	type OrchestratorOptions,
+} from "./events.js";
+
+// High-level API (structured results for CLI and daemon)
+export {
+	getPRDState,
+	startDevelopment,
+	runTests,
+	getActions,
+	canTransition,
+	type RunOptions,
+} from "./api.js";
+
+// Result types
+export {
+	type Result,
+	type StartResult,
+	type TestResult as TestingResult,
+	type StateResult,
+	type TransitionResult,
+	type PRDDisplayState,
+	type ErrorCode,
+	ok,
+	err,
+	ErrorCodes,
+	computeDisplayState,
+	isValidTransition,
+	getAvailableActions,
+} from "./results.js";
