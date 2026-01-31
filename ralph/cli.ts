@@ -38,7 +38,8 @@ const PRDS_DIR = join(RALPH_DIR, "prds");
 
 const STATUS_EMOJI: Record<PRDStatus, string> = {
 	pending: "🟡",
-	testing: "🔵",
+	in_progress: "🔵",
+	testing: "🟣",
 	completed: "✅",
 };
 
@@ -124,8 +125,13 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 
 	console.log("\n=== Ralph PRDs ===\n");
 
-	// Sort: pending first (runnable), then testing, completed
-	const statusOrder: Record<PRDStatus, number> = { pending: 0, testing: 1, completed: 2 };
+	// Sort: pending first (runnable), then in_progress, testing, completed
+	const statusOrder: Record<PRDStatus, number> = {
+		pending: 0,
+		in_progress: 1,
+		testing: 2,
+		completed: 3,
+	};
 	const sortedPrds = [...prds].sort((a, b) => {
 		const statusDiff = statusOrder[a.status] - statusOrder[b.status];
 		if (statusDiff !== 0) return statusDiff;
@@ -214,7 +220,7 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 	}
 
 	console.log(
-		"Legend: 🟡 Pending | 🔵 Testing | ✅ Completed | 🟢 Ready | 🔒 Blocked | 🚫 Has blocked stories",
+		"Legend: 🟡 Pending | 🔵 In Progress | 🟣 Testing | ✅ Completed | 🟢 Ready | 🔒 Blocked | 🚫 Has blocked stories",
 	);
 }
 
@@ -381,14 +387,20 @@ export async function runStart(flags: Record<string, unknown>, prdName?: unknown
 		process.exit(1);
 	}
 
-	if (status !== "pending") {
+	if (status !== "pending" && status !== "in_progress") {
 		console.error(`\n⚠️  PRD "${prdName}" is in ${status} status.`);
-		console.error(`Only PRDs in 'pending' status can be started.`);
+		console.error(`Only PRDs in 'pending' or 'in_progress' status can be started.`);
 		if (status === "testing") {
-			console.error(`\nTo continue work, move it back to pending:`);
-			console.error(`  omnidev ralph prd ${prdName} --move pending`);
+			console.error(`\nTo continue work, move it back to in_progress:`);
+			console.error(`  omnidev ralph prd ${prdName} --move in_progress`);
 		}
 		process.exit(1);
+	}
+
+	// Move from pending to in_progress if needed
+	if (status === "pending") {
+		await movePRD(prdName, "in_progress");
+		console.log(`Moved PRD to in_progress\n`);
 	}
 
 	// Check dependencies before starting
@@ -497,7 +509,7 @@ export async function runPrd(flags: Record<string, unknown>, prdName?: unknown):
 
 	// Handle --move
 	if (moveToStatus) {
-		const validStatuses: PRDStatus[] = ["pending", "testing", "completed"];
+		const validStatuses: PRDStatus[] = ["pending", "in_progress", "testing", "completed"];
 		if (!validStatuses.includes(moveToStatus)) {
 			console.error(`Invalid status: ${moveToStatus}`);
 			console.error(`Valid statuses: ${validStatuses.join(", ")}`);

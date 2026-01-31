@@ -11,8 +11,12 @@ export type StoryStatus = "pending" | "in_progress" | "completed" | "blocked";
 
 /**
  * PRD status in the workflow lifecycle
+ * - pending: PRD created but not started
+ * - in_progress: PRD started, work in progress
+ * - testing: All stories complete, ready for verification
+ * - completed: Verified and done
  */
-export type PRDStatus = "pending" | "testing" | "completed";
+export type PRDStatus = "pending" | "in_progress" | "testing" | "completed";
 
 /**
  * Story definition - a chunk of work within a PRD

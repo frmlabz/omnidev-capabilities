@@ -299,7 +299,7 @@ At the end of your testing, you MUST output one of these signals:
 
 These signals determine what happens next:
 - PRD_VERIFIED → PRD moves to completed automatically
-- PRD_FAILED → Fix story created, PRD moves back to pending
+- PRD_FAILED → Fix story created, PRD moves back to in_progress
 
 ## Project Verification Instructions
 
@@ -968,16 +968,16 @@ export async function runTesting(
 		const testResultsRelPath = `test-results/report.md`;
 		const fixStoryId = await addFixStory(prdName, issues, testResultsRelPath);
 
-		// Move back to pending
-		console.log("Moving PRD back to pending...");
-		await movePRD(prdName, "pending");
+		// Move back to in_progress
+		console.log("Moving PRD back to in_progress...");
+		await movePRD(prdName, "in_progress");
 
 		await runTeardown();
 
 		console.log(`\n📋 Fix story created: ${fixStoryId}`);
-		console.log(`PRD "${prdName}" moved back to pending.`);
+		console.log(`PRD "${prdName}" moved back to in_progress.`);
 		console.log(
-			`\nTo view issues: cat .omni/state/ralph/prds/pending/${prdName}/test-results/report.md`,
+			`\nTo view issues: cat .omni/state/ralph/prds/in_progress/${prdName}/test-results/report.md`,
 		);
 		console.log(`To fix issues: omnidev ralph start ${prdName}`);
 
@@ -993,8 +993,8 @@ export async function runTesting(
 	);
 	console.log(`\nTest report saved to: ${reportPath}`);
 	console.log("\nManual action required:");
-	console.log(`  omnidev ralph complete ${prdName}    # if tests passed`);
-	console.log(`  omnidev ralph prd ${prdName} --move pending  # if issues found`);
+	console.log(`  omnidev ralph complete ${prdName}       # if tests passed`);
+	console.log(`  omnidev ralph prd ${prdName} --move in_progress  # if issues found`);
 
 	return { report, result: "unknown" };
 }

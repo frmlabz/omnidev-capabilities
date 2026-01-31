@@ -18,11 +18,12 @@ const RALPH_DIR = ".omni/state/ralph";
 
 const PRD_STATUS_DIRS: Record<PRDStatus, string> = {
 	pending: join(RALPH_DIR, "prds", "pending"),
+	in_progress: join(RALPH_DIR, "prds", "in_progress"),
 	testing: join(RALPH_DIR, "prds", "testing"),
 	completed: join(RALPH_DIR, "prds", "completed"),
 };
 
-const ALL_STATUSES: PRDStatus[] = ["pending", "testing", "completed"];
+const ALL_STATUSES: PRDStatus[] = ["pending", "in_progress", "testing", "completed"];
 
 /**
  * PRD Store - single source of truth for all PRD operations

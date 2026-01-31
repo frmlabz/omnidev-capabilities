@@ -26,12 +26,22 @@ Ask 3-5 focused questions. Don't proceed until you have clear answers.
 
 ### 2. Create the PRD Folder Structure
 
+PRDs are stored in status-based folders:
+- `pending/` - PRDs not yet started
+- `in_progress/` - PRDs actively being worked on
+- `testing/` - PRDs with all stories complete, awaiting verification
+- `completed/` - Verified and finished PRDs
+
+Create new PRDs in the `pending` folder:
+
 ```
-.omni/state/ralph/prds/<pending>/<prd-name>/
+.omni/state/ralph/prds/pending/<prd-name>/
   ├── prd.json       # Orchestration file with stories
   ├── spec.md        # Detailed feature specification
   └── progress.txt   # Progress log (empty initially)
 ```
+
+When `omnidev ralph start` is run, the PRD moves to `in_progress/`.
 
 ### 3. Write the Spec File (spec.md)
 

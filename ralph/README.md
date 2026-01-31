@@ -64,15 +64,17 @@ PRDs move through three states:
 
 | Status | Description |
 |--------|-------------|
-| `pending` | Active development - stories being implemented |
+| `pending` | PRD created but not yet started |
+| `in_progress` | Active development - stories being implemented |
 | `testing` | All stories done, verification checklist generated, ready for testing |
 | `completed` | Verified and findings extracted |
 
 ### Automatic Transitions
 
-1. **All stories complete** → PRD moves to `testing`, verification.md auto-generated
-2. **Tests pass (PRD_VERIFIED)** → PRD moves to `completed`, findings extracted
-3. **Tests fail (PRD_FAILED)** → Fix story created, PRD moves back to `pending`
+1. **Start PRD** → PRD moves from `pending` to `in_progress`
+2. **All stories complete** → PRD moves to `testing`, verification.md auto-generated
+3. **Tests pass (PRD_VERIFIED)** → PRD moves to `completed`, findings extracted
+4. **Tests fail (PRD_FAILED)** → Fix story created, PRD moves back to `in_progress`
 
 ## Testing Workflow
 
@@ -116,7 +118,7 @@ The test agent outputs one of these signals:
 - Issue description 2
 </issues>
 ```
-→ Fix story created (FIX-001, FIX-002, etc.), PRD moves back to `pending`
+→ Fix story created (FIX-001, FIX-002, etc.), PRD moves back to `in_progress`
 
 ## Configuration
 

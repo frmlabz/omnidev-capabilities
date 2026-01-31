@@ -375,9 +375,9 @@ export async function runOrchestration(prdName: string, agentOverride?: string):
 			});
 
 			console.log("\nPRD moved to testing. Next steps:");
-			console.log(`  omnidev ralph test ${prdName}              # run automated tests`);
-			console.log(`  omnidev ralph complete ${prdName}          # if verified`);
-			console.log(`  omnidev ralph prd ${prdName} --move pending # if issues found`);
+			console.log(`  omnidev ralph test ${prdName}                 # run automated tests`);
+			console.log(`  omnidev ralph complete ${prdName}             # if verified`);
+			console.log(`  omnidev ralph prd ${prdName} --move in_progress # if issues found`);
 
 			return;
 		}
@@ -485,9 +485,9 @@ export async function runOrchestration(prdName: string, agentOverride?: string):
 				});
 
 				console.log("\nPRD moved to testing. Next steps:");
-				console.log(`  omnidev ralph test ${prdName}              # run automated tests`);
-				console.log(`  omnidev ralph complete ${prdName}          # if verified`);
-				console.log(`  omnidev ralph prd ${prdName} --move pending # if issues found`);
+				console.log(`  omnidev ralph test ${prdName}                 # run automated tests`);
+				console.log(`  omnidev ralph complete ${prdName}             # if verified`);
+				console.log(`  omnidev ralph prd ${prdName} --move in_progress # if issues found`);
 			} else {
 				// Agent signaled completion but there are still pending stories
 				await updateLastRun(prdName, {

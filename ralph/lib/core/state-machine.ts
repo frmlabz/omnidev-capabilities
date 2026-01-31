@@ -10,13 +10,15 @@ import { type Result, ok, err, ErrorCodes } from "../results.js";
 
 /**
  * PRD state transitions
- * pending -> testing (all stories complete)
- * testing -> completed (tests pass) | pending (tests fail)
+ * pending -> in_progress (start work)
+ * in_progress -> testing (all stories complete) | pending (reset/stop)
+ * testing -> completed (tests pass) | in_progress (tests fail, resume work)
  * completed -> (terminal state)
  */
 const PRD_TRANSITIONS: Record<PRDStatus, PRDStatus[]> = {
-	pending: ["testing"],
-	testing: ["completed", "pending"],
+	pending: ["in_progress"],
+	in_progress: ["testing", "pending"],
+	testing: ["completed", "in_progress"],
 	completed: [],
 };
 
@@ -72,6 +74,7 @@ export const PRDStateMachine = {
 	displayName(status: PRDStatus): string {
 		const names: Record<PRDStatus, string> = {
 			pending: "Pending",
+			in_progress: "In Progress",
 			testing: "Testing",
 			completed: "Completed",
 		};
@@ -174,13 +177,12 @@ const DISPLAY_TRANSITIONS: Record<DisplayState, DisplayState[]> = {
  */
 export const DisplayStateMachine = {
 	/**
-	 * Compute display state from PRD status and worktree existence
+	 * Compute display state from PRD status
+	 * Now that in_progress is a real PRD status, display state matches PRD status directly
 	 */
-	compute(prdStatus: PRDStatus, hasWorktree: boolean): DisplayState {
-		if (prdStatus === "completed") return "completed";
-		if (prdStatus === "testing") return "testing";
-		if (prdStatus === "pending" && hasWorktree) return "in_progress";
-		return "pending";
+	compute(prdStatus: PRDStatus, _hasWorktree: boolean): DisplayState {
+		// Display state now matches PRD status directly
+		return prdStatus as DisplayState;
 	},
 
 	/**

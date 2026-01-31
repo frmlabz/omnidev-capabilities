@@ -15,7 +15,7 @@ export const StoryStatusSchema = z.enum(["pending", "in_progress", "completed", 
 /**
  * PRD status enum
  */
-export const PRDStatusSchema = z.enum(["pending", "testing", "completed"]);
+export const PRDStatusSchema = z.enum(["pending", "in_progress", "testing", "completed"]);
 
 /**
  * Story schema - a chunk of work within a PRD

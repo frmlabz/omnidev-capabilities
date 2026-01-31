@@ -23,11 +23,12 @@ const FINDINGS_PATH = join(RALPH_DIR, "findings.md");
 
 const PRD_STATUS_DIRS: Record<PRDStatus, string> = {
 	pending: join(RALPH_DIR, "prds", "pending"),
+	in_progress: join(RALPH_DIR, "prds", "in_progress"),
 	testing: join(RALPH_DIR, "prds", "testing"),
 	completed: join(RALPH_DIR, "prds", "completed"),
 };
 
-const ALL_STATUSES: PRDStatus[] = ["pending", "testing", "completed"];
+const ALL_STATUSES: PRDStatus[] = ["pending", "in_progress", "testing", "completed"];
 
 /**
  * Ensure all status directories exist
@@ -648,7 +649,7 @@ export async function migrateToStatusFolders(): Promise<{ migrated: number; erro
 		const entries = readdirSync(oldPrdsDir, { withFileTypes: true });
 		for (const entry of entries) {
 			if (!entry.isDirectory()) continue;
-			if (["pending", "testing", "completed"].includes(entry.name)) continue;
+			if (["pending", "in_progress", "testing", "completed"].includes(entry.name)) continue;
 
 			const prdJsonPath = join(oldPrdsDir, entry.name, "prd.json");
 			if (!existsSync(prdJsonPath)) continue;
@@ -791,7 +792,7 @@ export function needsMigration(): boolean {
 		const entries = readdirSync(oldPrdsDir, { withFileTypes: true });
 		for (const entry of entries) {
 			if (!entry.isDirectory()) continue;
-			if (["pending", "testing", "completed"].includes(entry.name)) continue;
+			if (["pending", "in_progress", "testing", "completed"].includes(entry.name)) continue;
 
 			const prdJsonPath = join(oldPrdsDir, entry.name, "prd.json");
 			if (existsSync(prdJsonPath)) {
