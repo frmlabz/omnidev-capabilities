@@ -7,7 +7,7 @@ import { z } from "zod";
 /**
  * PRD Status (from ralph lib)
  */
-export const PRDStatusSchema = z.enum(["pending", "testing", "completed"]);
+export const PRDStatusSchema = z.enum(["pending", "in_progress", "testing", "completed"]);
 export type PRDStatus = z.infer<typeof PRDStatusSchema>;
 
 /**
@@ -72,6 +72,37 @@ export const PRDSummarySchema = z.object({
 	runningOperation: z.string().optional(),
 });
 export type PRDSummary = z.infer<typeof PRDSummarySchema>;
+
+/**
+ * Last Run Info
+ */
+export const LastRunSchema = z.object({
+	timestamp: z.string(),
+	storyId: z.string(),
+	reason: z.enum(["user_interrupted", "completed", "story_completed", "blocked", "error"]),
+	summary: z.string(),
+});
+export type LastRun = z.infer<typeof LastRunSchema>;
+
+/**
+ * Full PRD Details (includes stories and spec)
+ */
+export const PRDDetailSchema = z.object({
+	name: z.string(),
+	description: z.string(),
+	createdAt: z.string(),
+	startedAt: z.string().optional(),
+	completedAt: z.string().optional(),
+	stories: z.array(StorySchema),
+	dependencies: z.array(z.string()).optional(),
+	lastRun: LastRunSchema.optional(),
+	metrics: PRDMetricsSchema.optional(),
+	// Added by daemon
+	worktree: z.string().nullable(),
+	worktreePath: z.string(),
+	spec: z.string().optional(),
+});
+export type PRDDetail = z.infer<typeof PRDDetailSchema>;
 
 /**
  * Command Status

@@ -29,6 +29,7 @@ import {
 	ensureDirectories,
 	findPRDLocation,
 	getPRD,
+	getSpec,
 	getPRDSummaries,
 	startDevelopment,
 	runTests,
@@ -39,12 +40,12 @@ import type { EnrichedPRDSummary, PRDDisplayState } from "./types.js";
 
 /**
  * Compute display state from PRD status and worktree existence
+ * Now that in_progress is a real PRD status, display state matches PRD status directly
  */
-function computeDisplayState(prdStatus: string, hasWorktree: boolean): PRDDisplayState {
+function computeDisplayState(prdStatus: string, _hasWorktree: boolean): PRDDisplayState {
 	if (prdStatus === "completed") return "completed";
 	if (prdStatus === "testing") return "testing";
-	// pending + worktree = in_progress
-	if (prdStatus === "pending" && hasWorktree) return "in_progress";
+	if (prdStatus === "in_progress") return "in_progress";
 	return "pending";
 }
 
@@ -650,13 +651,14 @@ export function createApp(options: {
 		}
 	});
 
-	// Get PRD details (from matching worktree if exists, else main)
+	// Get PRD details (from associated worktree if exists, else main)
 	app.get("/api/prds/:name", async (c) => {
 		const name = c.req.param("name");
 
 		try {
 			const worktrees = await getWorktreesWithCache();
-			const matchingWorktree = worktrees.find((wt) => wt.name === name);
+			// Find worktree associated with this PRD (by prdName, not worktree name)
+			const matchingWorktree = worktrees.find((wt) => wt.prdName === name);
 			const mainWorktree = worktrees.find((wt) => wt.isMain);
 
 			const targetWorktree = matchingWorktree ?? mainWorktree;
@@ -678,6 +680,12 @@ export function createApp(options: {
 			try {
 				process.chdir(targetWorktree.path);
 				const prd = await getPRD(name);
+				let spec: string | undefined;
+				try {
+					spec = await getSpec(name);
+				} catch {
+					// Spec file may not exist, that's OK
+				}
 
 				return c.json({
 					ok: true,
@@ -685,8 +693,11 @@ export function createApp(options: {
 						...prd,
 						worktree: matchingWorktree?.name ?? null,
 						worktreePath: targetWorktree.path,
+						spec,
 					},
-				} satisfies ApiResponse<PRD & { worktree: string | null; worktreePath: string }>);
+				} satisfies ApiResponse<
+					PRD & { worktree: string | null; worktreePath: string; spec?: string }
+				>);
 			} finally {
 				process.chdir(originalCwd);
 			}
@@ -781,8 +792,9 @@ export function createApp(options: {
 		// Create worktree if it doesn't exist
 		if (!matchingWorktree) {
 			// Try creating new branch first (--yes skips interactive approval prompts)
+			// Run from projectPath (bare repo root) so worktrees are created inside the project
 			let proc = Bun.spawn(["wt", "switch", "-c", name, "--yes"], {
-				cwd: mainWorktree.path,
+				cwd: projectPath,
 				stdout: "pipe",
 				stderr: "pipe",
 			});
@@ -793,7 +805,7 @@ export function createApp(options: {
 			// If branch already exists, try switching to it without -c
 			if (exitCode !== 0 && stderr.includes("already exists")) {
 				proc = Bun.spawn(["wt", "switch", name, "--yes"], {
-					cwd: mainWorktree.path,
+					cwd: projectPath,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -1157,10 +1169,11 @@ export function createApp(options: {
 			);
 		}
 
-		// Run wt switch -c <name> from main worktree (--yes skips interactive approval)
+		// Run wt switch -c <name> from projectPath (--yes skips interactive approval)
+		// Run from bare repo root so worktrees are created inside the project
 		// Try creating new branch first, fall back to switching if branch exists
 		let proc = Bun.spawn(["wt", "switch", "-c", name, "--yes"], {
-			cwd: mainWorktree.path,
+			cwd: projectPath,
 			stdout: "pipe",
 			stderr: "pipe",
 		});
@@ -1172,7 +1185,7 @@ export function createApp(options: {
 		// If branch already exists, try switching to it without -c
 		if (exitCode !== 0 && stderr.includes("already exists")) {
 			proc = Bun.spawn(["wt", "switch", name, "--yes"], {
-				cwd: mainWorktree.path,
+				cwd: projectPath,
 				stdout: "pipe",
 				stderr: "pipe",
 			});
