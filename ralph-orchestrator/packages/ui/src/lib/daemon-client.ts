@@ -10,12 +10,14 @@ import {
 	DaemonConfigSchema,
 	DaemonInfoSchema,
 	LogEntrySchema,
+	PRDDetailSchema,
 	PRDSummarySchema,
 	WorktreeSummarySchema,
 	type DaemonConfig,
 	type DaemonInfo,
 	type DaemonRegistration,
 	type LogEntry,
+	type PRDDetail,
 	type PRDSummary,
 	type WorktreeSummary,
 } from "./schemas";
@@ -76,6 +78,13 @@ export function createDaemonClient(host: string, port: number) {
 		 */
 		async getPRDs(): Promise<PRDSummary[]> {
 			return fetchApi("/api/prds", z.array(PRDSummarySchema));
+		},
+
+		/**
+		 * Get full PRD details including stories and spec
+		 */
+		async getPRD(name: string): Promise<PRDDetail> {
+			return fetchApi(`/api/prds/${encodeURIComponent(name)}`, PRDDetailSchema);
 		},
 
 		/**

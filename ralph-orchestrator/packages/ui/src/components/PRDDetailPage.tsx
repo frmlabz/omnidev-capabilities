@@ -13,7 +13,8 @@ import { createDaemonClient } from "../lib/daemon-client";
 import { usePrdLogs } from "../hooks/usePrdLogs";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { LogViewer } from "./LogViewer";
-import type { PRDSummary, PRDDisplayState } from "../lib/schemas";
+import { CollapsibleSection } from "./CollapsibleSection";
+import type { PRDSummary, PRDDisplayState, Story, StoryStatus } from "../lib/schemas";
 
 interface PRDDetailPageProps {
 	prd: PRDSummary;
@@ -55,6 +56,47 @@ function getStateDisplay(state: PRDDisplayState): {
 				label: "Completed",
 				color: "text-green-700 dark:text-green-300",
 				bgColor: "bg-green-100 dark:bg-green-900/50",
+			};
+	}
+}
+
+/**
+ * Get display info for a story status
+ */
+function getStoryStatusDisplay(status: StoryStatus): {
+	label: string;
+	color: string;
+	bgColor: string;
+	icon: string;
+} {
+	switch (status) {
+		case "pending":
+			return {
+				label: "Pending",
+				color: "text-gray-600 dark:text-gray-400",
+				bgColor: "bg-gray-100 dark:bg-gray-700",
+				icon: "○",
+			};
+		case "in_progress":
+			return {
+				label: "In Progress",
+				color: "text-blue-600 dark:text-blue-400",
+				bgColor: "bg-blue-100 dark:bg-blue-900/50",
+				icon: "◐",
+			};
+		case "completed":
+			return {
+				label: "Completed",
+				color: "text-green-600 dark:text-green-400",
+				bgColor: "bg-green-100 dark:bg-green-900/50",
+				icon: "●",
+			};
+		case "blocked":
+			return {
+				label: "Blocked",
+				color: "text-red-600 dark:text-red-400",
+				bgColor: "bg-red-100 dark:bg-red-900/50",
+				icon: "⊘",
 			};
 	}
 }
@@ -112,6 +154,78 @@ function getActionConfig(
 	}
 }
 
+/**
+ * Story Card Component
+ */
+function StoryCard({ story }: { story: Story }) {
+	const statusDisplay = getStoryStatusDisplay(story.status);
+
+	return (
+		<div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-900/50">
+			{/* Header */}
+			<div className="flex items-start justify-between gap-3 mb-2">
+				<div className="flex items-center gap-2">
+					<span className="text-sm font-mono text-gray-500 dark:text-gray-400">{story.id}</span>
+					<span
+						className={`px-2 py-0.5 rounded text-xs font-medium ${statusDisplay.color} ${statusDisplay.bgColor}`}
+					>
+						{statusDisplay.icon} {statusDisplay.label}
+					</span>
+				</div>
+				<span className="text-xs text-gray-500 dark:text-gray-400">Priority: {story.priority}</span>
+			</div>
+
+			{/* Title */}
+			<h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">{story.title}</h4>
+
+			{/* Acceptance Criteria */}
+			{story.acceptanceCriteria.length > 0 && (
+				<div className="mb-2">
+					<p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Acceptance Criteria:</p>
+					<ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-300 space-y-0.5">
+						{story.acceptanceCriteria.map((criteria) => (
+							<li key={criteria} className="break-words">
+								{criteria}
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+
+			{/* Questions (if blocked) */}
+			{story.status === "blocked" && story.questions.length > 0 && (
+				<div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+					<p className="text-xs font-medium text-red-700 dark:text-red-300 mb-1">Questions:</p>
+					<ul className="list-decimal list-inside text-xs text-red-600 dark:text-red-400 space-y-0.5">
+						{story.questions.map((q) => (
+							<li key={q}>{q}</li>
+						))}
+					</ul>
+					{story.answers && story.answers.length > 0 && (
+						<>
+							<p className="text-xs font-medium text-green-700 dark:text-green-300 mt-2 mb-1">
+								Answers:
+							</p>
+							<ul className="list-decimal list-inside text-xs text-green-600 dark:text-green-400 space-y-0.5">
+								{story.answers.map((a) => (
+									<li key={a}>{a}</li>
+								))}
+							</ul>
+						</>
+					)}
+				</div>
+			)}
+
+			{/* Iteration count */}
+			{story.iterationCount !== undefined && story.iterationCount > 0 && (
+				<p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+					Iterations: {story.iterationCount}
+				</p>
+			)}
+		</div>
+	);
+}
+
 export function PRDDetailPage({
 	prd,
 	daemonHost,
@@ -121,6 +235,12 @@ export function PRDDetailPage({
 }: PRDDetailPageProps) {
 	const queryClient = useQueryClient();
 	const client = createDaemonClient(daemonHost, daemonPort);
+
+	// Fetch full PRD details including stories and spec
+	const { data: prdDetails } = useQuery({
+		queryKey: ["prd-details", daemonHost, daemonPort, prd.name],
+		queryFn: () => client.getPRD(prd.name),
+	});
 
 	// Fetch initial logs
 	const { data: initialLogs = [] } = useQuery({
@@ -213,6 +333,16 @@ export function PRDDetailPage({
 				return mergeMutation.isPending;
 		}
 	};
+
+	// Group stories by status for summary
+	const stories = prdDetails?.stories ?? [];
+	const storyCountByStatus = stories.reduce(
+		(acc, story) => {
+			acc[story.status] = (acc[story.status] || 0) + 1;
+			return acc;
+		},
+		{} as Record<StoryStatus, number>,
+	);
 
 	return (
 		<div className="space-y-6">
@@ -328,20 +458,60 @@ export function PRDDetailPage({
 				)}
 			</div>
 
-			{/* Logs section */}
-			<div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
-				<div className="flex items-center justify-between mb-4">
-					<h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100">
-						Logs
-					</h2>
-					{logs.length > 0 && (
-						<span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-							{logs.length} entries
-						</span>
-					)}
+			{/* User Stories Section */}
+			<CollapsibleSection
+				title="User Stories"
+				badge={`${prd.completedStories}/${prd.storyCount}`}
+				defaultCollapsed={false}
+			>
+				{/* Status summary */}
+				<div className="flex flex-wrap gap-2 mb-4">
+					{(["completed", "in_progress", "pending", "blocked"] as StoryStatus[]).map((status) => {
+						const count = storyCountByStatus[status] || 0;
+						if (count === 0) return null;
+						const display = getStoryStatusDisplay(status);
+						return (
+							<span
+								key={status}
+								className={`px-2 py-1 rounded text-xs font-medium ${display.color} ${display.bgColor}`}
+							>
+								{display.icon} {count} {display.label}
+							</span>
+						);
+					})}
 				</div>
+
+				{/* Story list */}
+				{stories.length > 0 ? (
+					<div className="space-y-3">
+						{stories.map((story) => (
+							<StoryCard key={story.id} story={story} />
+						))}
+					</div>
+				) : (
+					<p className="text-sm text-gray-500 dark:text-gray-400">Loading stories...</p>
+				)}
+			</CollapsibleSection>
+
+			{/* Spec Section */}
+			{prdDetails?.spec && (
+				<CollapsibleSection title="Spec" defaultCollapsed={true}>
+					<div className="prose prose-sm dark:prose-invert max-w-none">
+						<pre className="whitespace-pre-wrap text-xs bg-gray-50 dark:bg-gray-900 p-4 rounded-lg overflow-x-auto">
+							{prdDetails.spec}
+						</pre>
+					</div>
+				</CollapsibleSection>
+			)}
+
+			{/* Logs section */}
+			<CollapsibleSection
+				title="Logs"
+				badge={logs.length > 0 ? logs.length : undefined}
+				defaultCollapsed={false}
+			>
 				<LogViewer logs={logs} maxHeight="60vh" onClear={clearLogs} />
-			</div>
+			</CollapsibleSection>
 		</div>
 	);
 }

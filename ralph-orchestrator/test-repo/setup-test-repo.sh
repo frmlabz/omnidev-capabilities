@@ -77,25 +77,19 @@ command = "bash"
 args = ["-c", "echo 'Agent completed task'; sleep 2; echo 'Done'"]
 EOF
 
-# Create .wt.toml for worktree tool
-cat > .wt.toml << 'EOF'
-[worktree]
-primary = "main"
+# Create .config/wt.toml for worktree tool (project config)
+mkdir -p .config
+cat > .config/wt.toml << 'EOF'
+# Worktree path template - create worktrees inside the bare repo directory
+# This ensures worktrees are created as siblings to main/ inside the project
+worktree-path = "{{ branch | sanitize }}"
 
-[[worktree.commands]]
-trigger = "post-create"
-name = "setup"
-command = "bash scripts/worktree/setup.sh '{{ branch }}' '{{ primary_worktree_path }}'"
+[post-create]
+setup = "bash scripts/worktree/setup.sh '{{ branch }}' '{{ primary_worktree_path }}'"
+direnv = "cd {{ worktree_path }} && direnv allow || true"
 
-[[worktree.commands]]
-trigger = "post-create"
-name = "direnv"
-command = "cd {{ worktree_path }} && direnv allow || true"
-
-[[worktree.commands]]
-trigger = "post-delete"
-name = "cleanup"
-command = "bash scripts/worktree/cleanup.sh '{{ branch }}'"
+[pre-remove]
+cleanup = "bash scripts/worktree/cleanup.sh '{{ branch }}'"
 EOF
 
 # Create ralph scripts
