@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { parse } from "smol-toml";
 import { validateRalphConfig } from "../schemas.js";
-import type { RalphConfig, AgentConfig, TestingConfig, ScriptsConfig } from "../types.js";
+import type { RalphConfig, AgentConfig, TestingConfig, ScriptsConfig, DocsConfig } from "../types.js";
 import { type Result, ok, err, ErrorCodes } from "../results.js";
 
 const CONFIG_PATH = "omni.toml";
@@ -24,6 +24,7 @@ interface RawTomlConfig {
 		agents?: Record<string, RawAgentConfig>;
 		testing?: RawTestingConfig;
 		scripts?: RawScriptsConfig;
+		docs?: RawDocsConfig;
 	};
 }
 
@@ -45,6 +46,11 @@ interface RawScriptsConfig {
 	start?: string;
 	health_check?: string;
 	teardown?: string;
+}
+
+interface RawDocsConfig {
+	path?: string;
+	auto_update?: boolean;
 }
 
 /**
@@ -115,6 +121,17 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 			scripts.teardown = ralph.scripts.teardown;
 		}
 		config.scripts = scripts;
+	}
+
+	// Docs config
+	if (ralph.docs?.path) {
+		const docs: DocsConfig = {
+			path: ralph.docs.path,
+		};
+		if (ralph.docs.auto_update !== undefined) {
+			docs.auto_update = ralph.docs.auto_update;
+		}
+		config.docs = docs;
 	}
 
 	return config;

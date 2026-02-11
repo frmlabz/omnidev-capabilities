@@ -76,11 +76,13 @@ function handleStreamLine(line: string, ctx: StreamContext): void {
 				// Extract text content from assistant messages
 				const content = event.message?.content;
 				if (Array.isArray(content)) {
+					const text = extractTextFromContentBlocks(content);
+					if (text) {
+						process.stdout.write(text);
+						ctx.plainText += text;
+					}
 					for (const block of content) {
-						if (block.type === "text" && block.text) {
-							process.stdout.write(block.text);
-							ctx.plainText += block.text;
-						} else if (block.type === "tool_use") {
+						if (block.type === "tool_use") {
 							console.log(`\n[Tool: ${block.name}]`);
 						}
 					}
@@ -120,6 +122,72 @@ function handleStreamLine(line: string, ctx: StreamContext): void {
 			ctx.plainText += `${line}\n`;
 		}
 	}
+}
+
+/**
+ * Extract text from content blocks (shared by both JSON formats).
+ */
+function extractTextFromContentBlocks(content: unknown): string {
+	if (!Array.isArray(content)) return "";
+	let text = "";
+	for (const block of content) {
+		if (block.type === "text" && block.text) {
+			text += block.text;
+		}
+	}
+	return text;
+}
+
+/**
+ * Extract plain text from agent JSON output.
+ * Supports both --output-format json (single object) and
+ * --output-format stream-json (newline-delimited events).
+ * Returns null if the output is not in a recognized JSON format.
+ */
+function extractTextFromAgentJson(raw: string): string | null {
+	const trimmed = raw.trim();
+	if (!trimmed) return null;
+
+	// 1. Try single JSON object (--output-format json)
+	//    e.g. { "type": "result", "result": "...", ... }
+	//    or   { "role": "assistant", "content": [{ "type": "text", "text": "..." }] }
+	try {
+		const parsed = JSON.parse(trimmed);
+		if (typeof parsed.result === "string" && parsed.result.trim()) {
+			return parsed.result;
+		}
+		const fromContent = extractTextFromContentBlocks(parsed.content);
+		if (fromContent.trim()) return fromContent;
+	} catch {
+		// Not a single JSON object — fall through to stream-json
+	}
+
+	// 2. Try stream-json (one JSON event per line)
+	const lines = trimmed.split("\n").filter((l) => l.trim());
+	if (lines.length < 2) return null;
+
+	let plainText = "";
+	let jsonLineCount = 0;
+
+	for (const line of lines) {
+		try {
+			const event = JSON.parse(line);
+			jsonLineCount++;
+
+			if (event.type === "assistant") {
+				plainText += extractTextFromContentBlocks(event.message?.content);
+			} else if (event.type === "result" && typeof event.result === "string") {
+				if (!plainText.trim()) {
+					plainText = event.result;
+				}
+			}
+		} catch {
+			// Non-JSON line — if we haven't seen enough JSON lines, not stream-json format
+			if (jsonLineCount < 2) return null;
+		}
+	}
+
+	return jsonLineCount >= 2 && plainText.trim() ? plainText : null;
 }
 
 /**
@@ -181,9 +249,16 @@ export async function runAgent(
 				handleStreamLine(lineBuffer, streamCtx);
 			}
 
-			// When streaming, return the accumulated plain text for parsing
-			// Otherwise return raw stdout/stderr
-			const output = stream && streamCtx.plainText ? streamCtx.plainText : stdout + stderr;
+			// Extract clean text from output:
+			// 1. When streaming: use accumulated plain text from parsed events
+			// 2. Fallback: try to extract text from stream-json format (handles
+			//    non-streaming calls to agents that output stream-json, e.g.
+			//    generateVerification calling Claude Code without stream: true)
+			// 3. Last resort: raw stdout + stderr
+			const output =
+				(stream && streamCtx.plainText) ||
+				extractTextFromAgentJson(stdout) ||
+				stdout + stderr;
 			resolve({ output, exitCode: code ?? 1 });
 		});
 
