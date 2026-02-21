@@ -60,11 +60,12 @@ export class PRDStore {
 
 	/**
 	 * Find which status folder contains a PRD
+	 * A PRD folder is recognized if it contains prd.json or spec.md (spec-only during creation)
 	 */
 	findLocation(name: string): PRDStatus | null {
 		for (const status of ALL_STATUSES) {
-			const prdPath = this.getPRDFilePathByStatus(name, status);
-			if (existsSync(prdPath)) {
+			const dirPath = this.getPRDPathByStatus(name, status);
+			if (existsSync(join(dirPath, "prd.json")) || existsSync(join(dirPath, "spec.md"))) {
 				return status;
 			}
 		}
@@ -224,8 +225,8 @@ export class PRDStore {
 			const entries = readdirSync(dirPath, { withFileTypes: true });
 			for (const entry of entries) {
 				if (entry.isDirectory()) {
-					const prdPath = join(dirPath, entry.name, "prd.json");
-					if (existsSync(prdPath)) {
+					const entryDir = join(dirPath, entry.name);
+					if (existsSync(join(entryDir, "prd.json")) || existsSync(join(entryDir, "spec.md"))) {
 						results.push({ name: entry.name, status: s });
 					}
 				}

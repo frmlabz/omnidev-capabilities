@@ -55,12 +55,13 @@ function getPRDFilePathByStatus(name: string, status: PRDStatus): string {
 
 /**
  * Find which status folder contains a PRD
+ * A PRD folder is recognized if it contains prd.json or spec.md (spec-only during creation)
  * Returns null if not found
  */
 export function findPRDLocation(name: string): PRDStatus | null {
 	for (const status of ALL_STATUSES) {
-		const prdPath = getPRDFilePathByStatus(name, status);
-		if (existsSync(prdPath)) {
+		const dirPath = getPRDPathByStatus(name, status);
+		if (existsSync(join(dirPath, "prd.json")) || existsSync(join(dirPath, "spec.md"))) {
 			return status;
 		}
 	}
@@ -119,8 +120,8 @@ export async function listPRDsByStatus(
 		const entries = readdirSync(dirPath, { withFileTypes: true });
 		for (const entry of entries) {
 			if (entry.isDirectory()) {
-				const prdPath = join(dirPath, entry.name, "prd.json");
-				if (existsSync(prdPath)) {
+				const entryDir = join(dirPath, entry.name);
+				if (existsSync(join(entryDir, "prd.json")) || existsSync(join(entryDir, "spec.md"))) {
 					results.push({ name: entry.name, status: s });
 				}
 			}
