@@ -154,8 +154,8 @@ export class ReviewEngine {
 		log("info", `Phase 1 complete: ${firstResults.clean ? "clean" : "findings fixed"}`);
 
 		// Phase 2: External review (optional)
-		if (reviewConfig.external_tool !== "none") {
-			log("info", `Starting Phase 2: External Review (${reviewConfig.external_tool})`);
+		if (reviewConfig.review_agent) {
+			log("info", `Starting Phase 2: External Review (${reviewConfig.review_agent})`);
 			emit({ type: "review_start", phase: "external" });
 
 			const externalResult = await this.runExternalReview(
@@ -358,7 +358,7 @@ export class ReviewEngine {
 		signal?: AbortSignal,
 	): Promise<{ results: ReviewRoundResult[]; fixIterations: number; clean: boolean } | null> {
 		// Look up the external tool agent config
-		const externalAgentResult = getAgentConfig(config, reviewConfig.external_tool);
+		const externalAgentResult = getAgentConfig(config, reviewConfig.review_agent);
 		const externalAgentConfig = externalAgentResult.ok
 			? externalAgentResult.data!
 			: defaultAgentConfig;
@@ -366,7 +366,7 @@ export class ReviewEngine {
 		if (!externalAgentResult.ok) {
 			this.ctx.logger.log(
 				"warn",
-				`External tool agent '${reviewConfig.external_tool}' not found in config, using default agent`,
+				`Review agent '${reviewConfig.review_agent}' not found in config, using default agent`,
 				{ prdName },
 			);
 		}
@@ -380,10 +380,10 @@ export class ReviewEngine {
 				onOutput: (data) => emit({ type: "agent_output", data }),
 			});
 
-			const parsed = parseReviewResult(result.output, `external-${reviewConfig.external_tool}`);
+			const parsed = parseReviewResult(result.output, `external-${reviewConfig.review_agent}`);
 			emit({
 				type: "review_agent_complete",
-				reviewType: `external-${reviewConfig.external_tool}`,
+				reviewType: `external-${reviewConfig.review_agent}`,
 				decision: parsed.decision,
 				findingsCount: parsed.findings.length,
 			});

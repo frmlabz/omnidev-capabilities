@@ -64,7 +64,7 @@ interface RawDocsConfig {
 
 interface RawReviewConfig {
 	enabled?: boolean;
-	external_tool?: string;
+	review_agent?: string;
 	finalize_enabled?: boolean;
 	finalize_prompt?: string;
 	first_review_agents?: string[];
@@ -162,8 +162,8 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 		if (ralph.review.enabled !== undefined) {
 			review.enabled = ralph.review.enabled;
 		}
-		if (ralph.review.external_tool) {
-			review.external_tool = ralph.review.external_tool;
+		if (ralph.review.review_agent) {
+			review.review_agent = ralph.review.review_agent;
 		}
 		if (ralph.review.finalize_enabled !== undefined) {
 			review.finalize_enabled = ralph.review.finalize_enabled;
@@ -289,7 +289,7 @@ const DEFAULT_SECOND_REVIEW_AGENTS = ["quality", "implementation"];
 export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 	return {
 		enabled: config.review?.enabled ?? true,
-		external_tool: config.review?.external_tool ?? "none",
+		review_agent: config.review?.review_agent ?? "",
 		finalize_enabled: config.review?.finalize_enabled ?? false,
 		finalize_prompt: config.review?.finalize_prompt ?? "",
 		first_review_agents: config.review?.first_review_agents ?? DEFAULT_FIRST_REVIEW_AGENTS,

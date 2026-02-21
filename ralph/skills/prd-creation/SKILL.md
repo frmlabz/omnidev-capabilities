@@ -135,10 +135,10 @@ Check `omni.toml` for `[ralph.review]` configuration:
 
 ```toml
 [ralph.review]
-external_tool = "codex"  # or "none" (default)
+review_agent = "codex"  # or "" (default — disabled)
 ```
 
-If `external_tool` is set to something other than `"none"`:
+If `review_agent` is set (non-empty):
 
 1. Look up the agent's command and args from `[ralph.agents.<name>]` in omni.toml
 2. Invoke it via Bash, piping a spec review prompt to stdin:
@@ -149,7 +149,7 @@ echo "<prompt with spec content>" | <command> <args>
 
 The prompt should ask the external tool to review the spec for clarity, completeness, edge cases, and implementability — the same concerns as the spec-reviewer but from an independent perspective.
 
-If `external_tool` is `"none"` or not configured, skip this step.
+If `review_agent` is empty or not configured, skip this step.
 
 #### 5c. Present consolidated findings
 

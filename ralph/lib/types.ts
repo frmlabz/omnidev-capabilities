@@ -164,8 +164,8 @@ export interface DocsConfig {
 export interface ReviewConfig {
 	/** Whether review is enabled (default: true) */
 	enabled?: boolean;
-	/** External review tool agent name from [ralph.agents.*], or "none" (default: "none") */
-	external_tool?: string;
+	/** Review agent name from [ralph.agents.*] for external review, or "" to disable (default: "") */
+	review_agent?: string;
 	/** Whether the finalize step is enabled (default: false) */
 	finalize_enabled?: boolean;
 	/** Custom prompt for the finalize step */

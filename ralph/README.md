@@ -128,8 +128,8 @@ When reviewers find CRITICAL or MAJOR issues, a fix agent is spawned to resolve 
 # Enable/disable the review pipeline (default: true)
 enabled = true
 
-# External review tool - agent name from [ralph.agents.*] (default: "none")
-external_tool = "codex"
+# Review agent name from [ralph.agents.*] (default: "" — disabled)
+review_agent = "codex"
 
 # Enable finalize step after review (default: false)
 finalize_enabled = false
@@ -149,11 +149,11 @@ max_fix_iterations = 3
 
 ### External Review
 
-Configure an external tool (e.g., codex) for Phase 2:
+Configure a review agent (e.g., codex) for Phase 2:
 
 ```toml
 [ralph.review]
-external_tool = "codex"
+review_agent = "codex"
 
 [ralph.agents.codex]
 command = "npx"
@@ -270,7 +270,7 @@ args = ["-y", "@openai/codex", "exec", "-c", "shell_environment_policy.inherit=a
 
 [ralph.review]
 enabled = true
-external_tool = "none"
+review_agent = ""
 max_fix_iterations = 3
 ```
 

@@ -109,7 +109,7 @@ export const DocsConfigSchema = z.object({
  */
 export const ReviewConfigSchema = z.object({
 	enabled: z.boolean().optional(),
-	external_tool: z.string().optional(),
+	review_agent: z.string().optional(),
 	finalize_enabled: z.boolean().optional(),
 	finalize_prompt: z.string().optional(),
 	first_review_agents: z.array(z.string()).optional(),
