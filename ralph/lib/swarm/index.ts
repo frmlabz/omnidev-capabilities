@@ -1,14 +1,14 @@
 /**
- * Runner Module — Parallel PRD execution via worktrees + session backends
+ * Swarm Module — Parallel PRD execution via worktrees + session backends
  *
- * Library-first: RunnerManager is the consumer-agnostic API.
- * CLI, web UI, or any consumer instantiates RunnerManager with a config
+ * Library-first: SwarmManager is the consumer-agnostic API.
+ * CLI, web UI, or any consumer instantiates SwarmManager with a config
  * and a SessionBackend implementation.
  */
 
 // Types
 export type {
-	RunnerConfig,
+	SwarmConfig,
 	RunStatus,
 	RunInstance,
 	StartOptions,
@@ -16,14 +16,14 @@ export type {
 	MergeResult,
 	ConflictReport,
 	RecoverResult,
-	RunnerState,
+	SwarmState,
 	PersistedRunInstance,
 	PaneInfo,
 	PaneOptions,
 	SessionBackend,
 } from "./types.js";
 
-export { DEFAULT_RUNNER_CONFIG } from "./types.js";
+export { DEFAULT_SWARM_CONFIG } from "./types.js";
 
 // Session backends
 export { TmuxSessionBackend } from "./session-tmux.js";
@@ -46,10 +46,10 @@ export {
 	interpolateWorktreeCmd,
 } from "./worktree.js";
 
-// Runner state
+// Swarm state
 export {
-	loadRunnerState,
-	saveRunnerState,
+	loadSwarmState,
+	saveSwarmState,
 	upsertRun,
 	updateRunStatus,
 	removeRun,
@@ -59,4 +59,4 @@ export {
 } from "./state.js";
 
 // Main API
-export { RunnerManager, readWorktreePRD } from "./runner.js";
+export { SwarmManager, readWorktreePRD } from "./swarm.js";

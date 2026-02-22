@@ -118,9 +118,9 @@ export const ReviewConfigSchema = z.object({
 });
 
 /**
- * Runner configuration schema
+ * Swarm configuration schema
  */
-export const RunnerConfigSchema = z.object({
+export const SwarmConfigSchema = z.object({
 	worktree_parent: z.string().optional(),
 	panes_per_window: z.number().int().min(1).max(16).optional(),
 	pane_close_timeout: z.number().int().min(0).optional(),
@@ -146,7 +146,7 @@ export const RalphConfigSchema = z.object({
 	scripts: ScriptsConfigSchema.optional(),
 	docs: DocsConfigSchema.optional(),
 	review: ReviewConfigSchema.optional(),
-	runner: RunnerConfigSchema.optional(),
+	swarm: SwarmConfigSchema.optional(),
 });
 
 /**
@@ -230,7 +230,7 @@ export type TestingConfigZ = z.infer<typeof TestingConfigSchema>;
 export type ScriptsConfigZ = z.infer<typeof ScriptsConfigSchema>;
 export type DocsConfigZ = z.infer<typeof DocsConfigSchema>;
 export type ReviewConfigZ = z.infer<typeof ReviewConfigSchema>;
-export type RunnerConfigZ = z.infer<typeof RunnerConfigSchema>;
+export type SwarmConfigZ = z.infer<typeof SwarmConfigSchema>;
 export type RalphConfigZ = z.infer<typeof RalphConfigSchema>;
 export type TestResultZ = z.infer<typeof TestResultSchema>;
 export type TestReportZ = z.infer<typeof TestReportSchema>;

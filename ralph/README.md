@@ -87,7 +87,7 @@ Each swarm session runs in an isolated git worktree, so multiple PRDs can be dev
 By default, swarm uses `git worktree add` programmatically. If you have a custom tool that creates worktrees (e.g., one that also installs deps and CDs the shell), configure it:
 
 ```toml
-[ralph.runner]
+[ralph.swarm]
 worktree_create_cmd = "wt switch -c {name}"
 ```
 
@@ -325,7 +325,7 @@ enabled = true
 review_agent = ""
 max_fix_iterations = 3
 
-[ralph.runner]
+[ralph.swarm]
 # Relative path to parent directory for worktrees (default: "..")
 worktree_parent = ".."
 # Max panes per tmux window (default: 4)

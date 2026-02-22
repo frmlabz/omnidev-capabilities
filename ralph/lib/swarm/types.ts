@@ -1,5 +1,5 @@
 /**
- * Runner Type Definitions
+ * Swarm Type Definitions
  *
  * Types for the parallel PRD execution layer using git worktrees
  * and pluggable session backends.
@@ -8,9 +8,9 @@
 import type { Result } from "../results.js";
 
 /**
- * Runner configuration from [ralph.runner] in omni.toml
+ * Swarm configuration from [ralph.swarm] in omni.toml
  */
-export interface RunnerConfig {
+export interface SwarmConfig {
 	/** Relative path to parent directory for worktrees (default: "..") */
 	worktree_parent: string;
 	/** Max panes per tmux window (default: 4) */
@@ -22,9 +22,9 @@ export interface RunnerConfig {
 }
 
 /**
- * Default runner configuration values
+ * Default swarm configuration values
  */
-export const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
+export const DEFAULT_SWARM_CONFIG: SwarmConfig = {
 	worktree_parent: "..",
 	panes_per_window: 4,
 	pane_close_timeout: 30,
@@ -112,9 +112,9 @@ export interface RecoverResult {
 }
 
 /**
- * Persisted runner state (runner.json)
+ * Persisted swarm state (swarm.json)
  */
-export interface RunnerState {
+export interface SwarmState {
 	/** Session name */
 	session: string;
 	/** Active run instances keyed by PRD name */

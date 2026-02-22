@@ -16,7 +16,7 @@ import type {
 	ScriptsConfig,
 	DocsConfig,
 	ReviewConfig,
-	RunnerConfig,
+	SwarmConfig,
 } from "../types.js";
 import { type Result, ok, err, ErrorCodes } from "../results.js";
 
@@ -35,7 +35,7 @@ interface RawTomlConfig {
 		scripts?: RawScriptsConfig;
 		docs?: RawDocsConfig;
 		review?: RawReviewConfig;
-		runner?: RawRunnerConfig;
+		swarm?: RawSwarmConfig;
 	};
 }
 
@@ -78,7 +78,7 @@ interface RawReviewConfig {
 	max_fix_iterations?: number;
 }
 
-interface RawRunnerConfig {
+interface RawSwarmConfig {
 	worktree_parent?: string;
 	panes_per_window?: number;
 	pane_close_timeout?: number;
@@ -199,22 +199,22 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 		config.review = review;
 	}
 
-	// Runner config
-	if (ralph.runner) {
-		const runner: RunnerConfig = {};
-		if (ralph.runner.worktree_parent) {
-			runner.worktree_parent = ralph.runner.worktree_parent;
+	// Swarm config
+	if (ralph.swarm) {
+		const swarm: SwarmConfig = {};
+		if (ralph.swarm.worktree_parent) {
+			swarm.worktree_parent = ralph.swarm.worktree_parent;
 		}
-		if (ralph.runner.panes_per_window !== undefined) {
-			runner.panes_per_window = ralph.runner.panes_per_window;
+		if (ralph.swarm.panes_per_window !== undefined) {
+			swarm.panes_per_window = ralph.swarm.panes_per_window;
 		}
-		if (ralph.runner.pane_close_timeout !== undefined) {
-			runner.pane_close_timeout = ralph.runner.pane_close_timeout;
+		if (ralph.swarm.pane_close_timeout !== undefined) {
+			swarm.pane_close_timeout = ralph.swarm.pane_close_timeout;
 		}
-		if (ralph.runner.worktree_create_cmd) {
-			runner.worktree_create_cmd = ralph.runner.worktree_create_cmd;
+		if (ralph.swarm.worktree_create_cmd) {
+			swarm.worktree_create_cmd = ralph.swarm.worktree_create_cmd;
 		}
-		config.runner = runner;
+		config.swarm = swarm;
 	}
 
 	return config;
@@ -333,16 +333,16 @@ export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 }
 
 /**
- * Get runner configuration with defaults filled in
+ * Get swarm configuration with defaults filled in
  */
-export function getRunnerConfig(
+export function getSwarmConfig(
 	config: RalphConfig,
-): Required<Omit<RunnerConfig, "worktree_create_cmd">> & Pick<RunnerConfig, "worktree_create_cmd"> {
+): Required<Omit<SwarmConfig, "worktree_create_cmd">> & Pick<SwarmConfig, "worktree_create_cmd"> {
 	return {
-		worktree_parent: config.runner?.worktree_parent ?? "..",
-		panes_per_window: config.runner?.panes_per_window ?? 4,
-		pane_close_timeout: config.runner?.pane_close_timeout ?? 30,
-		worktree_create_cmd: config.runner?.worktree_create_cmd,
+		worktree_parent: config.swarm?.worktree_parent ?? "..",
+		panes_per_window: config.swarm?.panes_per_window ?? 4,
+		pane_close_timeout: config.swarm?.pane_close_timeout ?? 30,
+		worktree_create_cmd: config.swarm?.worktree_create_cmd,
 	};
 }
 

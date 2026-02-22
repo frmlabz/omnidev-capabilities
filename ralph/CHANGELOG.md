@@ -4,7 +4,8 @@
 
 ### Added
 
-- **Custom worktree creation command** — `[ralph.runner] worktree_create_cmd` allows using a custom tool (e.g., `wt switch -c {name}`) instead of the default `git worktree add`. The command runs inside the tmux pane, so tools that CD the shell work correctly. Placeholders: `{name}`, `{path}`, `{branch}`.
+- **Custom worktree creation command** — `[ralph.swarm] worktree_create_cmd` allows using a custom tool (e.g., `wt switch -c {name}`) instead of the default `git worktree add`. The command runs inside the tmux pane, so tools that CD the shell work correctly. Placeholders: `{name}`, `{path}`, `{branch}`.
+- **Internal rename: runner → swarm, AgentRunner → AgentExecutor** — All internal code now uses `swarm` (matching the CLI sub-command) instead of `runner`. The `AgentRunner` class (which spawns individual agent processes) is renamed to `AgentExecutor` to avoid ambiguity. Config key changed from `[ralph.runner]` to `[ralph.swarm]`. State file changed from `runner.json` to `swarm.json`.
 
 ### Breaking Changes
 

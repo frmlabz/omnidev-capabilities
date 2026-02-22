@@ -33,9 +33,16 @@ ralph/
 │   │   ├── logger.ts     # Logger with multiple outputs
 │   │   ├── prd-store.ts  # PRDStore class (CRUD + transitions)
 │   │   └── state-machine.ts  # State machines: PRD, Story, Display
+│   ├── swarm/
+│   │   ├── index.ts      # Swarm barrel exports
+│   │   ├── types.ts      # SwarmConfig, SwarmState, SessionBackend, etc.
+│   │   ├── state.ts      # swarm.json persistence (loadSwarmState, saveSwarmState)
+│   │   ├── swarm.ts      # SwarmManager class (main API)
+│   │   ├── worktree.ts   # Git worktree operations
+│   │   └── session-tmux.ts   # TmuxSessionBackend implementation
 │   └── orchestration/
 │       ├── engine.ts     # OrchestrationEngine class (main loop)
-│       ├── agent-runner.ts   # AgentRunner class (spawns agents)
+│       ├── agent-runner.ts   # AgentExecutor class (spawns agents)
 │       └── review-engine.ts  # ReviewEngine class (multi-phase review pipeline)
 ├── subagents/
 │   ├── architect.md      # Opus, read-only, strategic analysis
@@ -60,7 +67,7 @@ ralph/
 |------|----------|-------|
 | State paths | lib/core/paths.ts | XDG path resolution, project key, atomicWrite |
 | Config loading | lib/core/config.ts | smol-toml based, getReviewConfig() fills defaults |
-| Agent spawning | lib/orchestration/agent-runner.ts | AgentRunner class with stream-json parsing |
+| Agent spawning | lib/orchestration/agent-runner.ts | AgentExecutor class with stream-json parsing |
 | Iteration logic | lib/orchestration/engine.ts | OrchestrationEngine.runDevelopment() |
 | Review pipeline | lib/orchestration/review-engine.ts | ReviewEngine.runReview(), 4-phase pipeline |
 | Review prompts | lib/review-prompt.ts | generateReviewPrompt, parseReviewResult, etc. |
@@ -102,7 +109,7 @@ ralph/
 - State stored at `$XDG_STATE_HOME/omnidev/ralph/<project>/` (defaults to `~/.local/state/...`)
 - PRD folders: `prds/<status>/<name>/` with prd.json, spec.md, progress.txt
 - Review results: `review-results/first-review.md`, `second-review.md`, `external-review.md`
-- Runner state: `runner.json` in project state dir
+- Swarm state: `swarm.json` in project state dir
 - Story status: pending → in_progress → completed/blocked
 - `project_name` required in config (slug format: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 

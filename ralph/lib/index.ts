@@ -23,7 +23,7 @@ export type {
 	ReviewConfig,
 	ReviewFinding,
 	ReviewRoundResult,
-	RunnerConfig,
+	SwarmConfig,
 	ScriptsConfig,
 	Story,
 	StoryStatus,
@@ -46,7 +46,7 @@ export {
 	ScriptsConfigSchema,
 	DocsConfigSchema,
 	ReviewConfigSchema,
-	RunnerConfigSchema,
+	SwarmConfigSchema,
 	RalphConfigSchema,
 	TestResultSchema,
 	TestReportSchema,
@@ -67,7 +67,7 @@ export {
 	type ScriptsConfigZ,
 	type DocsConfigZ,
 	type ReviewConfigZ,
-	type RunnerConfigZ,
+	type SwarmConfigZ,
 	type RalphConfigZ,
 	type TestResultZ,
 	type TestReportZ,
@@ -99,7 +99,7 @@ export {
 	getStateDir,
 	getPrdsDir,
 	getStatusDir,
-	getRunnerStatePath,
+	getSwarmStatePath,
 	ensureStateDirs,
 	atomicWrite,
 } from "./core/paths.js";
@@ -112,7 +112,7 @@ export {
 	getTestingConfig,
 	getScriptsConfig,
 	getReviewConfig,
-	getRunnerConfig,
+	getSwarmConfig,
 } from "./core/config.js";
 
 // Core - Logger
@@ -131,13 +131,13 @@ export {
 	createLogger,
 } from "./core/logger.js";
 
-// Orchestration - Agent Runner
+// Orchestration - Agent Executor
 export {
 	type RunOptions as AgentRunOptions,
 	type AgentResult,
-	AgentRunner,
-	getAgentRunner,
-	createAgentRunner,
+	AgentExecutor,
+	getAgentExecutor,
+	createAgentExecutor,
 } from "./orchestration/agent-runner.js";
 
 // Orchestration - Engine
@@ -281,10 +281,10 @@ export {
 	getAvailableActions,
 } from "./results.js";
 
-// Runner module — parallel PRD execution via worktrees + session backends
+// Swarm module — parallel PRD execution via worktrees + session backends
 export {
 	// Main API
-	RunnerManager,
+	SwarmManager,
 	readWorktreePRD,
 	// Session backends
 	TmuxSessionBackend,
@@ -296,12 +296,12 @@ export {
 	type MergeResult,
 	type ConflictReport,
 	type RecoverResult,
-	type RunnerState,
+	type SwarmState,
 	type PersistedRunInstance,
 	type PaneInfo,
 	type PaneOptions,
 	type SessionBackend,
-	DEFAULT_RUNNER_CONFIG,
+	DEFAULT_SWARM_CONFIG,
 	// Worktree operations
 	type WorktreeInfo,
 	getCurrentBranch,
@@ -315,13 +315,13 @@ export {
 	checkMergeConflicts,
 	getMainWorktreePath,
 	isMainWorktree,
-	// Runner state
-	loadRunnerState,
-	saveRunnerState,
+	// Swarm state
+	loadSwarmState,
+	saveSwarmState,
 	upsertRun,
 	updateRunStatus,
 	removeRun as removeRunInstance,
 	getRun,
 	getAllRuns,
 	reconcile,
-} from "./runner/index.js";
+} from "./swarm/index.js";

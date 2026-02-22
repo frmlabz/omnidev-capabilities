@@ -924,14 +924,14 @@ const testCommand = command({
 	func: runTest,
 });
 
-// ── Runner commands ────────────────────────────────────────────────────
+// ── Swarm commands ─────────────────────────────────────────────────────
 
 /**
- * Create a RunnerManager from config. Shared by all run sub-commands.
+ * Create a SwarmManager from config. Shared by all swarm sub-commands.
  */
-async function createRunnerManager() {
-	const { getRunnerConfig } = await import("./lib/index.js");
-	const { RunnerManager, TmuxSessionBackend } = await import("./lib/runner/index.js");
+async function createSwarmManager() {
+	const { getSwarmConfig } = await import("./lib/index.js");
+	const { SwarmManager, TmuxSessionBackend } = await import("./lib/swarm/index.js");
 
 	const { projectName, repoRoot } = await getProjectContext();
 	const configResult = await loadConfig();
@@ -941,9 +941,9 @@ async function createRunnerManager() {
 	}
 	const config = configResult.data!;
 
-	const runnerConfig = getRunnerConfig(config);
-	const session = new TmuxSessionBackend(runnerConfig.panes_per_window);
-	return new RunnerManager(runnerConfig, session, projectName, projectName, repoRoot);
+	const swarmConfig = getSwarmConfig(config);
+	const session = new TmuxSessionBackend(swarmConfig.panes_per_window);
+	return new SwarmManager(swarmConfig, session, projectName, projectName, repoRoot);
 }
 
 /**
@@ -967,7 +967,7 @@ async function runSwarmStart(flags: Record<string, unknown>, prdName?: unknown):
 		process.exit(1);
 	}
 
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 	const agent = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
 	const result = await manager.start(prdName, { agent });
 
@@ -990,7 +990,7 @@ async function runSwarmTest(flags: Record<string, unknown>, prdName?: unknown): 
 		process.exit(1);
 	}
 
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 	const agent = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
 	const result = await manager.test(prdName, { agent });
 
@@ -1003,7 +1003,7 @@ async function runSwarmTest(flags: Record<string, unknown>, prdName?: unknown): 
 }
 
 async function runSwarmStop(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 
 	if (flags["all"] === true) {
 		const result = await manager.stopAll();
@@ -1029,7 +1029,7 @@ async function runSwarmStop(flags: Record<string, unknown>, prdName?: unknown): 
 }
 
 async function runSwarmList(_flags: Record<string, unknown>): Promise<void> {
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 	const result = await manager.list();
 
 	if (!result.ok) {
@@ -1056,7 +1056,7 @@ async function runSwarmAttach(_flags: Record<string, unknown>, prdName?: unknown
 		process.exit(1);
 	}
 
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 	const result = await manager.attach(prdName);
 
 	if (!result.ok) {
@@ -1071,7 +1071,7 @@ async function runSwarmLogs(flags: Record<string, unknown>, prdName?: unknown): 
 		process.exit(1);
 	}
 
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 	const tail = typeof flags["tail"] === "number" ? flags["tail"] : 100;
 	const result = await manager.logs(prdName, tail);
 
@@ -1084,7 +1084,7 @@ async function runSwarmLogs(flags: Record<string, unknown>, prdName?: unknown): 
 }
 
 async function runSwarmMerge(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 
 	if (flags["all"] === true) {
 		const result = await manager.mergeAll();
@@ -1129,7 +1129,7 @@ async function runSwarmMerge(flags: Record<string, unknown>, prdName?: unknown):
 }
 
 async function runSwarmCleanup(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 
 	if (flags["all"] === true) {
 		const result = await manager.cleanupAll();
@@ -1155,7 +1155,7 @@ async function runSwarmCleanup(flags: Record<string, unknown>, prdName?: unknown
 }
 
 async function runSwarmRecover(_flags: Record<string, unknown>): Promise<void> {
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 	const result = await manager.recover();
 
 	if (!result.ok) {
@@ -1188,7 +1188,7 @@ async function runSwarmRecover(_flags: Record<string, unknown>): Promise<void> {
 }
 
 async function runSwarmConflicts(_flags: Record<string, unknown>): Promise<void> {
-	const manager = await createRunnerManager();
+	const manager = await createSwarmManager();
 	const result = await manager.conflicts();
 
 	if (!result.ok) {

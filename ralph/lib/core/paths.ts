@@ -60,10 +60,10 @@ export function getStatusDir(projectName: string, repoRoot: string, status: PRDS
 }
 
 /**
- * Get the path to runner.json.
+ * Get the path to swarm.json.
  */
-export function getRunnerStatePath(projectName: string, repoRoot: string): string {
-	return join(getStateDir(projectName, repoRoot), "runner.json");
+export function getSwarmStatePath(projectName: string, repoRoot: string): string {
+	return join(getStateDir(projectName, repoRoot), "swarm.json");
 }
 
 /**

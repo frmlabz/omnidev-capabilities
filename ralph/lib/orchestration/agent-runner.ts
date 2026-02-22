@@ -1,5 +1,5 @@
 /**
- * Ralph Agent Runner
+ * Ralph Agent Executor
  *
  * Handles spawning and running agents with proper output parsing.
  * Consolidates agent execution logic from orchestrator.ts and events.ts.
@@ -87,9 +87,9 @@ function handleStreamLine(line: string, ctx: StreamContext, options?: RunOptions
 }
 
 /**
- * Agent Runner class
+ * Agent Executor class
  */
-export class AgentRunner {
+export class AgentExecutor {
 	/**
 	 * Run an agent with the given prompt
 	 */
@@ -253,22 +253,22 @@ export class AgentRunner {
 	}
 }
 
-// Default runner instance
-let defaultRunner: AgentRunner | null = null;
+// Default executor instance
+let defaultExecutor: AgentExecutor | null = null;
 
 /**
- * Get the default agent runner
+ * Get the default agent executor
  */
-export function getAgentRunner(): AgentRunner {
-	if (!defaultRunner) {
-		defaultRunner = new AgentRunner();
+export function getAgentExecutor(): AgentExecutor {
+	if (!defaultExecutor) {
+		defaultExecutor = new AgentExecutor();
 	}
-	return defaultRunner;
+	return defaultExecutor;
 }
 
 /**
- * Create a new agent runner
+ * Create a new agent executor
  */
-export function createAgentRunner(): AgentRunner {
-	return new AgentRunner();
+export function createAgentExecutor(): AgentExecutor {
+	return new AgentExecutor();
 }

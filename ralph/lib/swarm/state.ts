@@ -1,33 +1,33 @@
 /**
- * Runner State Persistence
+ * Swarm State Persistence
  *
- * Manages runner.json — the ephemeral session metadata file that tracks
+ * Manages swarm.json — the ephemeral session metadata file that tracks
  * which PRDs are running in which worktrees/panes.
  *
  * This file is NOT committed to git (it's session-specific).
- * It lives at $XDG_STATE_HOME/omnidev/ralph/<project>/runner.json.
+ * It lives at $XDG_STATE_HOME/omnidev/ralph/<project>/swarm.json.
  */
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { type Result, ok, err } from "../results.js";
 import type {
-	RunnerState,
+	SwarmState,
 	RunInstance,
 	RunStatus,
 	PersistedRunInstance,
 	SessionBackend,
 } from "./types.js";
-import { getRunnerStatePath, atomicWrite } from "../core/paths.js";
+import { getSwarmStatePath, atomicWrite } from "../core/paths.js";
 
 /**
- * Load runner state from disk
+ * Load swarm state from disk
  */
-export async function loadRunnerState(
+export async function loadSwarmState(
 	projectName: string,
 	repoRoot: string,
-): Promise<Result<RunnerState>> {
-	const statePath = getRunnerStatePath(projectName, repoRoot);
+): Promise<Result<SwarmState>> {
+	const statePath = getSwarmStatePath(projectName, repoRoot);
 
 	if (!existsSync(statePath)) {
 		return ok({ session: "", runs: {} });
@@ -35,28 +35,28 @@ export async function loadRunnerState(
 
 	try {
 		const content = await readFile(statePath, "utf-8");
-		const state = JSON.parse(content) as RunnerState;
+		const state = JSON.parse(content) as SwarmState;
 		return ok(state);
 	} catch (error) {
 		const msg = error instanceof Error ? error.message : String(error);
-		return err("STATE_READ_FAILED", `Failed to read runner state: ${msg}`);
+		return err("STATE_READ_FAILED", `Failed to read swarm state: ${msg}`);
 	}
 }
 
 /**
- * Save runner state to disk (atomic write via rename)
+ * Save swarm state to disk (atomic write via rename)
  */
-export async function saveRunnerState(
+export async function saveSwarmState(
 	projectName: string,
 	repoRoot: string,
-	state: RunnerState,
+	state: SwarmState,
 ): Promise<Result<void>> {
 	try {
-		await atomicWrite(getRunnerStatePath(projectName, repoRoot), JSON.stringify(state, null, 2));
+		await atomicWrite(getSwarmStatePath(projectName, repoRoot), JSON.stringify(state, null, 2));
 		return ok(undefined);
 	} catch (error) {
 		const msg = error instanceof Error ? error.message : String(error);
-		return err("STATE_WRITE_FAILED", `Failed to save runner state: ${msg}`);
+		return err("STATE_WRITE_FAILED", `Failed to save swarm state: ${msg}`);
 	}
 }
 
@@ -69,7 +69,7 @@ export async function upsertRun(
 	sessionName: string,
 	instance: RunInstance,
 ): Promise<Result<void>> {
-	const stateResult = await loadRunnerState(projectName, repoRoot);
+	const stateResult = await loadSwarmState(projectName, repoRoot);
 	if (!stateResult.ok) return err(stateResult.error!.code, stateResult.error!.message);
 
 	const state = stateResult.data!;
@@ -83,7 +83,7 @@ export async function upsertRun(
 		windowId: instance.windowId,
 	};
 
-	return saveRunnerState(projectName, repoRoot, state);
+	return saveSwarmState(projectName, repoRoot, state);
 }
 
 /**
@@ -95,7 +95,7 @@ export async function updateRunStatus(
 	prdName: string,
 	status: RunStatus,
 ): Promise<Result<void>> {
-	const stateResult = await loadRunnerState(projectName, repoRoot);
+	const stateResult = await loadSwarmState(projectName, repoRoot);
 	if (!stateResult.ok) return err(stateResult.error!.code, stateResult.error!.message);
 
 	const state = stateResult.data!;
@@ -103,7 +103,7 @@ export async function updateRunStatus(
 	if (!run) return err("NOT_RUNNING", `No run found for PRD: ${prdName}`);
 
 	run.status = status;
-	return saveRunnerState(projectName, repoRoot, state);
+	return saveSwarmState(projectName, repoRoot, state);
 }
 
 /**
@@ -114,12 +114,12 @@ export async function removeRun(
 	repoRoot: string,
 	prdName: string,
 ): Promise<Result<void>> {
-	const stateResult = await loadRunnerState(projectName, repoRoot);
+	const stateResult = await loadSwarmState(projectName, repoRoot);
 	if (!stateResult.ok) return err(stateResult.error!.code, stateResult.error!.message);
 
 	const state = stateResult.data!;
 	delete state.runs[prdName];
-	return saveRunnerState(projectName, repoRoot, state);
+	return saveSwarmState(projectName, repoRoot, state);
 }
 
 /**
@@ -130,7 +130,7 @@ export async function getRun(
 	repoRoot: string,
 	prdName: string,
 ): Promise<Result<RunInstance | null>> {
-	const stateResult = await loadRunnerState(projectName, repoRoot);
+	const stateResult = await loadSwarmState(projectName, repoRoot);
 	if (!stateResult.ok) return err(stateResult.error!.code, stateResult.error!.message);
 
 	const state = stateResult.data!;
@@ -147,7 +147,7 @@ export async function getAllRuns(
 	projectName: string,
 	repoRoot: string,
 ): Promise<Result<RunInstance[]>> {
-	const stateResult = await loadRunnerState(projectName, repoRoot);
+	const stateResult = await loadSwarmState(projectName, repoRoot);
 	if (!stateResult.ok) return err(stateResult.error!.code, stateResult.error!.message);
 
 	const state = stateResult.data!;
@@ -168,7 +168,7 @@ export async function reconcile(
 	repoRoot: string,
 	session: SessionBackend,
 ): Promise<Result<RunInstance[]>> {
-	const stateResult = await loadRunnerState(projectName, repoRoot);
+	const stateResult = await loadSwarmState(projectName, repoRoot);
 	if (!stateResult.ok) return err(stateResult.error!.code, stateResult.error!.message);
 
 	const state = stateResult.data!;
@@ -193,7 +193,7 @@ export async function reconcile(
 
 	// Persist changes if any instances were marked stale
 	if (dirty) {
-		await saveRunnerState(projectName, repoRoot, state);
+		await saveSwarmState(projectName, repoRoot, state);
 	}
 
 	return ok(instances);

@@ -273,7 +273,7 @@ export class ReviewEngine {
 						gitDiff,
 						isSecondReview,
 					);
-					const result = await this.ctx.runner.run(prompt, agentConfig, {
+					const result = await this.ctx.agentExecutor.run(prompt, agentConfig, {
 						stream: true,
 						signal,
 						onOutput: (data) => emit({ type: "agent_output", data }),
@@ -352,7 +352,7 @@ export class ReviewEngine {
 		const prompt = generateFixPrompt(prdName, prd, findings);
 
 		try {
-			await this.ctx.runner.run(prompt, agentConfig, {
+			await this.ctx.agentExecutor.run(prompt, agentConfig, {
 				stream: true,
 				signal,
 				onOutput: (data) => emit({ type: "agent_output", data }),
@@ -392,7 +392,7 @@ export class ReviewEngine {
 		const prompt = generateExternalReviewPrompt(prdName, prd, gitDiff);
 
 		try {
-			const result = await this.ctx.runner.run(prompt, externalAgentConfig, {
+			const result = await this.ctx.agentExecutor.run(prompt, externalAgentConfig, {
 				stream: true,
 				signal,
 				onOutput: (data) => emit({ type: "agent_output", data }),
@@ -437,7 +437,7 @@ export class ReviewEngine {
 		const prompt = generateFinalizePrompt(prdName, prd, reviewConfig.finalize_prompt || undefined);
 
 		try {
-			await this.ctx.runner.run(prompt, agentConfig, {
+			await this.ctx.agentExecutor.run(prompt, agentConfig, {
 				stream: true,
 				signal,
 				onOutput: (data) => emit({ type: "agent_output", data }),

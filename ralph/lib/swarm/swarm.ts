@@ -1,5 +1,5 @@
 /**
- * RunnerManager — the main API for parallel PRD execution
+ * SwarmManager — the main API for parallel PRD execution
  *
  * Consumer-agnostic. CLI, web UI, or any other consumer instantiates this
  * with a config and a session backend, then calls structured methods.
@@ -10,7 +10,7 @@
 import { existsSync } from "node:fs";
 import { type Result, ok, err } from "../results.js";
 import type {
-	RunnerConfig,
+	SwarmConfig,
 	RunInstance,
 	StartOptions,
 	TestOptions,
@@ -31,7 +31,7 @@ import {
 	interpolateWorktreeCmd,
 } from "./worktree.js";
 import {
-	loadRunnerState,
+	loadSwarmState,
 	upsertRun,
 	updateRunStatus,
 	removeRun,
@@ -41,8 +41,8 @@ import {
 import { findPRDLocation, hasPRDFile, canStartPRD, getPRD } from "../state.js";
 import type { PRD } from "../types.js";
 
-export class RunnerManager {
-	private config: RunnerConfig;
+export class SwarmManager {
+	private config: SwarmConfig;
 	private session: SessionBackend;
 	private sessionName: string;
 	private cwd: string;
@@ -50,7 +50,7 @@ export class RunnerManager {
 	private repoRoot: string;
 
 	constructor(
-		config: RunnerConfig,
+		config: SwarmConfig,
 		session: SessionBackend,
 		sessionName: string,
 		projectName: string,
@@ -374,7 +374,7 @@ export class RunnerManager {
 	 * Cross-references state with live session and disk to find orphans.
 	 */
 	async recover(): Promise<Result<RecoverResult>> {
-		const stateResult = await loadRunnerState(this.projectName, this.repoRoot);
+		const stateResult = await loadSwarmState(this.projectName, this.repoRoot);
 		if (!stateResult.ok) return err(stateResult.error!.code, stateResult.error!.message);
 
 		const state = stateResult.data!;
@@ -436,7 +436,7 @@ export class RunnerManager {
 		}
 
 		// Save updated state
-		const { saveRunnerState: saveState } = await import("./state.js");
+		const { saveSwarmState: saveState } = await import("./state.js");
 		await saveState(this.projectName, this.repoRoot, state);
 
 		return ok(result);
@@ -529,7 +529,7 @@ export class RunnerManager {
 		// Must be run from main worktree
 		const mainResult = await isMainWorktree(this.cwd);
 		if (mainResult.ok && !mainResult.data) {
-			return err("NOT_MAIN_WORKTREE", "Runner commands must be executed from the main worktree");
+			return err("NOT_MAIN_WORKTREE", "Swarm commands must be executed from the main worktree");
 		}
 
 		// PRD must exist

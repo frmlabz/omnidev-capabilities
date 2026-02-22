@@ -207,9 +207,9 @@ export interface ReviewRoundResult {
 }
 
 /**
- * Runner configuration for parallel PRD execution
+ * Swarm configuration for parallel PRD execution
  */
-export interface RunnerConfig {
+export interface SwarmConfig {
 	/** Relative path to parent directory for worktrees (default: "..") */
 	worktree_parent?: string;
 	/** Max panes per tmux window (default: 4) */
@@ -240,8 +240,8 @@ export interface RalphConfig {
 	docs?: DocsConfig;
 	/** Review configuration */
 	review?: ReviewConfig;
-	/** Runner configuration for parallel PRD execution */
-	runner?: RunnerConfig;
+	/** Swarm configuration for parallel PRD execution */
+	swarm?: SwarmConfig;
 }
 
 /**

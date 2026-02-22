@@ -2,7 +2,7 @@
  * Session Backend
  *
  * Re-exports the SessionBackend interface and related types.
- * The interface is defined in types.ts alongside other runner types.
+ * The interface is defined in types.ts alongside other swarm types.
  * Implementations live in separate files (e.g., session-tmux.ts).
  */
 

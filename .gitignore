@@ -27,5 +27,6 @@ bun.lockb
 coverage/
 
 # Test artifacts
+.test-ralph/
 .test-ralph-*
 test-ralph-sync/

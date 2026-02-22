@@ -20,7 +20,7 @@ import {
 	getReviewConfig,
 } from "../core/config.js";
 import { type Logger, getLogger } from "../core/logger.js";
-import { type AgentRunner, getAgentRunner } from "./agent-runner.js";
+import { type AgentExecutor, getAgentExecutor } from "./agent-runner.js";
 import { generatePrompt } from "../prompt.js";
 import {
 	generateTestPrompt,
@@ -45,7 +45,7 @@ export interface EngineContext {
 	projectName: string;
 	repoRoot: string;
 	store: PRDStore;
-	runner: AgentRunner;
+	agentExecutor: AgentExecutor;
 	logger: Logger;
 	signal?: AbortSignal;
 }
@@ -125,7 +125,7 @@ export class OrchestrationEngine {
 			projectName: ctx.projectName,
 			repoRoot: ctx.repoRoot,
 			store: ctx.store ?? getDefaultStore(ctx.projectName, ctx.repoRoot),
-			runner: ctx.runner ?? getAgentRunner(),
+			agentExecutor: ctx.agentExecutor ?? getAgentExecutor(),
 			logger: ctx.logger ?? getLogger(),
 			signal: ctx.signal,
 		};
@@ -287,7 +287,7 @@ export class OrchestrationEngine {
 				story,
 				prdName,
 			);
-			const result = await this.ctx.runner.run(prompt, agentConfig, {
+			const result = await this.ctx.agentExecutor.run(prompt, agentConfig, {
 				stream: true,
 				signal,
 				onOutput: (data) => emit({ type: "agent_output", data }),
@@ -299,13 +299,13 @@ export class OrchestrationEngine {
 			await this.ctx.store.updateMetrics(prdName, { iterations: 1 });
 
 			// Parse token usage
-			const tokenUsage = this.ctx.runner.parseTokenUsage(result.output);
+			const tokenUsage = this.ctx.agentExecutor.parseTokenUsage(result.output);
 			if (tokenUsage.inputTokens || tokenUsage.outputTokens) {
 				await this.ctx.store.updateMetrics(prdName, tokenUsage);
 			}
 
 			// Check completion signal
-			if (this.ctx.runner.hasCompletionSignal(result.output)) {
+			if (this.ctx.agentExecutor.hasCompletionSignal(result.output)) {
 				log("info", "Agent signaled completion");
 
 				const isCompleteResult = await this.ctx.store.isComplete(prdName);
@@ -347,7 +347,7 @@ export class OrchestrationEngine {
 				});
 			} else {
 				// Try to infer status from output
-				const inferredStatus = this.ctx.runner.parseStatus(result.output, story.id);
+				const inferredStatus = this.ctx.agentExecutor.parseStatus(result.output, story.id);
 				if (inferredStatus === "completed") {
 					log("info", `Inferred story ${story.id} completed from output`);
 					await this.ctx.store.updateStoryStatus(prdName, story.id, "completed");
@@ -427,7 +427,7 @@ export class OrchestrationEngine {
 		// Generate verification
 		try {
 			const runAgentFn = async (prompt: string, config: AgentConfig) => {
-				const result = await this.ctx.runner.run(prompt, config, { signal });
+				const result = await this.ctx.agentExecutor.run(prompt, config, { signal });
 				return { output: result.output, exitCode: result.exitCode };
 			};
 			await generateVerification(
@@ -494,7 +494,7 @@ export class OrchestrationEngine {
 			log("info", "Generating verification checklist...");
 			try {
 				const runAgentFn = async (prompt: string, cfg: AgentConfig) => {
-					const result = await this.ctx.runner.run(prompt, cfg, { signal });
+					const result = await this.ctx.agentExecutor.run(prompt, cfg, { signal });
 					return { output: result.output, exitCode: result.exitCode };
 				};
 				await generateVerification(
@@ -572,7 +572,7 @@ export class OrchestrationEngine {
 				attempt,
 				maxHealthFixAttempts,
 			);
-			const fixResult = await this.ctx.runner.run(fixPrompt, agentConfig, {
+			const fixResult = await this.ctx.agentExecutor.run(fixPrompt, agentConfig, {
 				stream: true,
 				signal,
 				onOutput: (data) => emit({ type: "agent_output", data }),
@@ -604,7 +604,7 @@ export class OrchestrationEngine {
 		);
 
 		log("info", "Spawning test agent...");
-		const result = await this.ctx.runner.run(prompt, agentConfig, {
+		const result = await this.ctx.agentExecutor.run(prompt, agentConfig, {
 			stream: true,
 			signal,
 			onOutput: (data) => emit({ type: "agent_output", data }),
