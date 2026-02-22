@@ -324,13 +324,43 @@ export async function getMainWorktreePath(cwd: string): Promise<Result<string>> 
 }
 
 /**
- * Check if the current directory is the main worktree (not a linked worktree)
+ * Check if the current directory is within the main worktree (not a linked worktree).
+ *
+ * For bare repo layouts, pass `primaryBranch` (from `[ralph.swarm] primary_branch`)
+ * to identify which linked worktree is the primary one. Without it, bare repos
+ * will always fail this check.
  */
-export async function isMainWorktree(cwd: string): Promise<Result<boolean>> {
-	const mainResult = await getMainWorktreePath(cwd);
-	if (!mainResult.ok) return err(mainResult.error!.code, mainResult.error!.message);
+export async function isMainWorktree(
+	cwd: string,
+	primaryBranch?: string,
+): Promise<Result<boolean>> {
+	const result = await listWorktrees(cwd);
+	if (!result.ok) return err(result.error!.code, result.error!.message);
+
+	const main = result.data![0];
+	if (!main) return err("NO_WORKTREES", "No worktrees found");
+
+	if (main.isBare) {
+		// Bare repo — match against the configured primary branch worktree
+		if (!primaryBranch) {
+			return err(
+				"BARE_REPO_NO_PRIMARY",
+				'Bare repo detected. Set primary_branch in [ralph.swarm] to the branch of your primary worktree (e.g., primary_branch = "main").',
+			);
+		}
+		const primary = result.data!.find((wt) => wt.branch === primaryBranch);
+		if (!primary) {
+			return err(
+				"PRIMARY_WORKTREE_NOT_FOUND",
+				`No worktree found for primary_branch "${primaryBranch}".`,
+			);
+		}
+		const resolvedCwd = resolve(cwd);
+		const resolvedPrimary = resolve(primary.path);
+		return ok(resolvedCwd === resolvedPrimary || resolvedCwd.startsWith(`${resolvedPrimary}/`));
+	}
 
 	const resolvedCwd = resolve(cwd);
-	const resolvedMain = resolve(mainResult.data!);
-	return ok(resolvedCwd === resolvedMain);
+	const resolvedMain = resolve(main.path);
+	return ok(resolvedCwd === resolvedMain || resolvedCwd.startsWith(`${resolvedMain}/`));
 }

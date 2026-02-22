@@ -218,6 +218,8 @@ export interface SwarmConfig {
 	pane_close_timeout?: number;
 	/** Custom command to create worktree (runs inside pane). Placeholders: {name}, {path}, {branch} */
 	worktree_create_cmd?: string;
+	/** For bare repos: branch name of the primary linked worktree (e.g., "main"). Empty = not a bare repo layout. */
+	primary_branch?: string;
 }
 
 /**

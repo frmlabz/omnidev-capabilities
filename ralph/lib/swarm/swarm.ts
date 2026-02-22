@@ -527,8 +527,11 @@ export class SwarmManager {
 	 */
 	private async preflight(prdName: string): Promise<Result<void>> {
 		// Must be run from main worktree
-		const mainResult = await isMainWorktree(this.cwd);
-		if (mainResult.ok && !mainResult.data) {
+		const mainResult = await isMainWorktree(this.cwd, this.config.primary_branch);
+		if (!mainResult.ok) {
+			return err(mainResult.error!.code, mainResult.error!.message);
+		}
+		if (!mainResult.data) {
 			return err("NOT_MAIN_WORKTREE", "Swarm commands must be executed from the main worktree");
 		}
 
