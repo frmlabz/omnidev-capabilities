@@ -31,6 +31,7 @@ export { TmuxSessionBackend } from "./session-tmux.js";
 // Worktree operations
 export {
 	type WorktreeInfo,
+	type WorktreeCmdVars,
 	getCurrentBranch,
 	branchExists,
 	listWorktrees,
@@ -42,6 +43,7 @@ export {
 	checkMergeConflicts,
 	getMainWorktreePath,
 	isMainWorktree,
+	interpolateWorktreeCmd,
 } from "./worktree.js";
 
 // Runner state

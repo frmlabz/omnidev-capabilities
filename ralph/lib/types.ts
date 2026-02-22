@@ -216,6 +216,8 @@ export interface RunnerConfig {
 	panes_per_window?: number;
 	/** Seconds before auto-closing a completed pane (default: 30) */
 	pane_close_timeout?: number;
+	/** Custom command to create worktree (runs inside pane). Placeholders: {name}, {path}, {branch} */
+	worktree_create_cmd?: string;
 }
 
 /**

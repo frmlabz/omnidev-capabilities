@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Custom worktree creation command** — `[ralph.runner] worktree_create_cmd` allows using a custom tool (e.g., `wt switch -c {name}`) instead of the default `git worktree add`. The command runs inside the tmux pane, so tools that CD the shell work correctly. Placeholders: `{name}`, `{path}`, `{branch}`.
+
 ### Breaking Changes
 
 #### 1. `run` renamed to `swarm`

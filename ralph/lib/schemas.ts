@@ -124,6 +124,7 @@ export const RunnerConfigSchema = z.object({
 	worktree_parent: z.string().optional(),
 	panes_per_window: z.number().int().min(1).max(16).optional(),
 	pane_close_timeout: z.number().int().min(0).optional(),
+	worktree_create_cmd: z.string().min(1).optional(),
 });
 
 /**

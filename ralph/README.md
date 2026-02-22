@@ -82,6 +82,19 @@ omnidev ralph swarm recover
 
 Each swarm session runs in an isolated git worktree, so multiple PRDs can be developed simultaneously without conflicts.
 
+### Custom Worktree Creation
+
+By default, swarm uses `git worktree add` programmatically. If you have a custom tool that creates worktrees (e.g., one that also installs deps and CDs the shell), configure it:
+
+```toml
+[ralph.runner]
+worktree_create_cmd = "wt switch -c {name}"
+```
+
+Available placeholders: `{name}` (PRD name), `{path}` (resolved worktree path), `{branch}` (branch name).
+
+When set, the custom command runs inside the tmux pane as a prefix to the agent command instead of the default `git worktree add` + `cd`.
+
 ## PRD Lifecycle
 
 PRDs move through three states:
@@ -311,6 +324,16 @@ args = ["-y", "@openai/codex", "exec", "-c", "shell_environment_policy.inherit=a
 enabled = true
 review_agent = ""
 max_fix_iterations = 3
+
+[ralph.runner]
+# Relative path to parent directory for worktrees (default: "..")
+worktree_parent = ".."
+# Max panes per tmux window (default: 4)
+panes_per_window = 4
+# Seconds before auto-closing a completed pane (default: 30)
+pane_close_timeout = 30
+# Custom worktree creation command (optional). Placeholders: {name}, {path}, {branch}
+# worktree_create_cmd = "wt switch -c {name}"
 ```
 
 ## Testing Scripts

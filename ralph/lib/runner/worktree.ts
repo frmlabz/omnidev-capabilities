@@ -102,6 +102,30 @@ export function resolveWorktreePath(prdName: string, worktreeParent: string, cwd
 }
 
 /**
+ * Variables available for worktree command template interpolation
+ */
+export interface WorktreeCmdVars {
+	/** PRD name */
+	name: string;
+	/** Resolved worktree path */
+	path: string;
+	/** Branch name */
+	branch: string;
+}
+
+/**
+ * Interpolate a worktree command template with the given variables.
+ *
+ * Replaces `{name}`, `{path}`, and `{branch}` placeholders.
+ */
+export function interpolateWorktreeCmd(template: string, vars: WorktreeCmdVars): string {
+	return template
+		.replace(/\{name\}/g, vars.name)
+		.replace(/\{path\}/g, vars.path)
+		.replace(/\{branch\}/g, vars.branch);
+}
+
+/**
  * Create a worktree for a PRD
  *
  * Creates a new branch with the PRD name and a worktree at the resolved path.

@@ -82,6 +82,7 @@ interface RawRunnerConfig {
 	worktree_parent?: string;
 	panes_per_window?: number;
 	pane_close_timeout?: number;
+	worktree_create_cmd?: string;
 }
 
 /**
@@ -210,6 +211,9 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 		if (ralph.runner.pane_close_timeout !== undefined) {
 			runner.pane_close_timeout = ralph.runner.pane_close_timeout;
 		}
+		if (ralph.runner.worktree_create_cmd) {
+			runner.worktree_create_cmd = ralph.runner.worktree_create_cmd;
+		}
 		config.runner = runner;
 	}
 
@@ -331,11 +335,14 @@ export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 /**
  * Get runner configuration with defaults filled in
  */
-export function getRunnerConfig(config: RalphConfig): Required<RunnerConfig> {
+export function getRunnerConfig(
+	config: RalphConfig,
+): Required<Omit<RunnerConfig, "worktree_create_cmd">> & Pick<RunnerConfig, "worktree_create_cmd"> {
 	return {
 		worktree_parent: config.runner?.worktree_parent ?? "..",
 		panes_per_window: config.runner?.panes_per_window ?? 4,
 		pane_close_timeout: config.runner?.pane_close_timeout ?? 30,
+		worktree_create_cmd: config.runner?.worktree_create_cmd,
 	};
 }
 

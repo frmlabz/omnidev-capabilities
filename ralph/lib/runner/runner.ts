@@ -28,6 +28,7 @@ import {
 	resolveWorktreePath,
 	listWorktrees,
 	hasUncommittedChanges,
+	interpolateWorktreeCmd,
 } from "./worktree.js";
 import {
 	loadRunnerState,
@@ -106,11 +107,24 @@ export class RunnerManager {
 			);
 		}
 
-		// Create worktree
-		const wtResult = await createWorktree(prdName, this.config.worktree_parent, this.cwd);
-		if (!wtResult.ok) return err(wtResult.error!.code, wtResult.error!.message);
+		// Create worktree (or defer to custom command)
+		const branch = prdName;
+		const worktreePath = resolveWorktreePath(prdName, this.config.worktree_parent, this.cwd);
+		let panePrefix: string;
 
-		const { path: worktreePath, branch } = wtResult.data!;
+		if (this.config.worktree_create_cmd) {
+			// Custom command runs inside the pane — handles worktree creation + cd
+			panePrefix = interpolateWorktreeCmd(this.config.worktree_create_cmd, {
+				name: prdName,
+				path: worktreePath,
+				branch,
+			});
+		} else {
+			// Default: programmatic git worktree add, then cd
+			const wtResult = await createWorktree(prdName, this.config.worktree_parent, this.cwd);
+			if (!wtResult.ok) return err(wtResult.error!.code, wtResult.error!.message);
+			panePrefix = `cd "${wtResult.data!.path}"`;
+		}
 
 		// Ensure session exists
 		const sessionResult = await this.session.ensureSession(this.sessionName);
@@ -119,7 +133,7 @@ export class RunnerManager {
 		// Build the orchestration command
 		const agentFlag = options?.agent ? ` --agent ${options.agent}` : "";
 		const timeout = this.config.pane_close_timeout;
-		const command = `cd "${worktreePath}" && omnidev ralph start ${prdName}${agentFlag}; echo "[finished]"; read -t ${timeout} || true`;
+		const command = `${panePrefix} && omnidev ralph start ${prdName}${agentFlag}; echo "[finished]"; read -t ${timeout} || true`;
 
 		// Create pane
 		const paneResult = await this.session.createPane(this.sessionName, {
@@ -134,7 +148,7 @@ export class RunnerManager {
 		const instance: RunInstance = {
 			prdName,
 			worktree: worktreePath,
-			branch,
+			branch: prdName,
 			paneId: pane.paneId,
 			startedAt: new Date().toISOString(),
 			status: "running",
