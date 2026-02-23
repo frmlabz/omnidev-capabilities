@@ -159,6 +159,7 @@ export class ReviewEngine {
 			false,
 			emit,
 			signal,
+			reviewConfig.max_fix_iterations,
 		);
 
 		await writeFile(
@@ -217,6 +218,7 @@ export class ReviewEngine {
 			true, // second review — critical only
 			emit,
 			signal,
+			reviewConfig.max_fix_iterations,
 		);
 
 		await writeFile(
@@ -253,9 +255,8 @@ export class ReviewEngine {
 		isSecondReview: boolean,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
+		maxFixIterations = 3,
 	): Promise<{ results: ReviewRoundResult[]; fixIterations: number; clean: boolean }> {
-		const maxFixIterations = 3; // Will be read from config in runReview
-
 		for (let fixIteration = 0; fixIteration <= maxFixIterations; fixIteration++) {
 			if (signal?.aborted) {
 				return { results: [], fixIterations: fixIteration, clean: false };
