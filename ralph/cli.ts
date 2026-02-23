@@ -979,9 +979,6 @@ async function runSwarmStart(flags: Record<string, unknown>, prdName?: unknown):
 	const run = result.data!;
 	console.log(`Started "${prdName}" in worktree: ${run.worktree}`);
 	console.log(`  Pane: ${run.paneId} | Branch: ${run.branch}`);
-	if (run.worktree !== run.branch) {
-		console.log(`  Warning: worktree was reused`);
-	}
 }
 
 async function runSwarmTest(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {

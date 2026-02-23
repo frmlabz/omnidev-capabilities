@@ -5,7 +5,7 @@
  * Panes are organized into windows with configurable density (default 4 per window).
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { type Result, ok, err } from "../results.js";
 import type { SessionBackend, PaneInfo, PaneOptions } from "./types.js";
@@ -17,6 +17,16 @@ const execFileAsync = promisify(execFile);
  */
 async function tmux(...args: string[]): Promise<{ stdout: string; stderr: string }> {
 	return execFileAsync("tmux", args, { timeout: 10_000 });
+}
+
+/**
+ * Check if a tmux error indicates no server is running (socket missing or server not started)
+ */
+function isNoServer(msg: string): boolean {
+	return (
+		msg.includes("no server running") ||
+		(msg.includes("error connecting") && msg.includes("No such file or directory"))
+	);
 }
 
 /**
@@ -77,7 +87,7 @@ export class TmuxSessionBackend implements SessionBackend {
 			return ok(true);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
-			if (msg.includes("can't find session") || msg.includes("no server running")) {
+			if (msg.includes("can't find session") || isNoServer(msg)) {
 				return ok(false);
 			}
 			return err("TMUX_ERROR", msg);
@@ -90,7 +100,7 @@ export class TmuxSessionBackend implements SessionBackend {
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
-			if (msg.includes("can't find session")) {
+			if (msg.includes("can't find session") || isNoServer(msg)) {
 				return ok(undefined); // Already gone
 			}
 			return err("SESSION_DESTROY_FAILED", msg);
@@ -239,7 +249,7 @@ export class TmuxSessionBackend implements SessionBackend {
 			return ok(panes);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
-			if (msg.includes("can't find session") || msg.includes("no server running")) {
+			if (msg.includes("can't find session") || isNoServer(msg)) {
 				return ok([]);
 			}
 			return err("TMUX_ERROR", msg);
@@ -253,7 +263,7 @@ export class TmuxSessionBackend implements SessionBackend {
 			return ok(!!pid && pid !== "0");
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
-			if (msg.includes("can't find pane")) {
+			if (msg.includes("can't find pane") || isNoServer(msg)) {
 				return ok(false);
 			}
 			return err("TMUX_ERROR", msg);
@@ -262,8 +272,18 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async focusPane(paneId: string): Promise<Result<void>> {
 		try {
+			// Select the target pane/window within the session
 			await tmux("select-pane", "-t", paneId);
 			await tmux("select-window", "-t", paneId);
+
+			// If we're not inside tmux, attach interactively
+			if (!process.env["TMUX"]) {
+				const { stdout } = await tmux("display-message", "-t", paneId, "-p", "#{session_name}");
+				execFileSync("tmux", ["attach-session", "-t", stdout.trim()], {
+					stdio: "inherit",
+				});
+			}
+
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);

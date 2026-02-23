@@ -73,6 +73,9 @@ export class SwarmManager {
 		const checks = await this.preflight(prdName);
 		if (!checks.ok) return err(checks.error!.code, checks.error!.message);
 
+		// Reconcile state with live session before checking status
+		await reconcile(this.projectName, this.repoRoot, this.session);
+
 		// Check not already running
 		const existing = await getRun(this.projectName, this.repoRoot, prdName);
 		if (existing.ok && existing.data && existing.data.status === "running") {
@@ -107,12 +110,15 @@ export class SwarmManager {
 			);
 		}
 
-		// Create worktree (or defer to custom command)
+		// Create worktree (or reuse existing one)
 		const branch = prdName;
 		const worktreePath = resolveWorktreePath(prdName, this.config.worktree_parent, this.cwd);
 		let panePrefix: string;
 
-		if (this.config.worktree_create_cmd) {
+		if (existsSync(worktreePath)) {
+			// Worktree already exists on disk — just cd into it
+			panePrefix = `cd "${worktreePath}"`;
+		} else if (this.config.worktree_create_cmd) {
 			// Custom command runs inside the pane — handles worktree creation + cd
 			panePrefix = interpolateWorktreeCmd(this.config.worktree_create_cmd, {
 				name: prdName,
