@@ -6,6 +6,7 @@
  */
 
 import type { Result } from "../results.js";
+import type { AgentConfig } from "../types.js";
 
 /**
  * Swarm configuration from [ralph.swarm] in omni.toml
@@ -77,28 +78,18 @@ export interface TestOptions {
  * Result of a merge operation
  */
 export interface MergeResult {
-	/** PRD that was merged */
-	prdName: string;
-	/** Merge commit SHA */
-	commitSha: string;
-	/** Files changed in the merge */
-	filesChanged: string[];
-	/** Whether there were conflicts (only if merge failed) */
-	hadConflicts: boolean;
+	/** PRD names that were merged */
+	prdNames: string[];
 }
 
 /**
- * Report of merge conflicts for a PRD
+ * Options for merge operations
  */
-export interface ConflictReport {
-	/** PRD name */
-	prdName: string;
-	/** Branch name */
-	branch: string;
-	/** Files with conflicts */
-	conflictFiles: string[];
-	/** Human-readable summary */
-	summary: string;
+export interface MergeOptions {
+	/** Agent configuration for the merge agent */
+	agentConfig: AgentConfig;
+	/** Callback for agent output chunks */
+	onOutput?: (data: string) => void;
 }
 
 /**

@@ -15,21 +15,20 @@ import type {
 	StartOptions,
 	TestOptions,
 	MergeResult,
-	ConflictReport,
+	MergeOptions,
 	RecoverResult,
 	SessionBackend,
 } from "./types.js";
 import {
 	createWorktree,
 	removeWorktree,
-	mergeWorktree,
-	checkMergeConflicts,
 	isMainWorktree,
 	resolveWorktreePath,
 	listWorktrees,
 	hasUncommittedChanges,
 	interpolateWorktreeCmd,
 } from "./worktree.js";
+import { AgentExecutor } from "../orchestration/agent-runner.js";
 import {
 	loadSwarmState,
 	upsertRun,
@@ -251,9 +250,12 @@ export class SwarmManager {
 	}
 
 	/**
-	 * Merge a PRD's worktree branch back into main
+	 * Merge a PRD's worktree branch back into main via an agent.
+	 *
+	 * The agent handles: git merge, conflict resolution, worktree removal,
+	 * and branch deletion. This method blocks until the agent finishes.
 	 */
-	async merge(prdName: string): Promise<Result<MergeResult>> {
+	async merge(prdName: string, options: MergeOptions): Promise<Result<MergeResult>> {
 		const runResult = await getRun(this.projectName, this.repoRoot, prdName);
 		const worktreePath =
 			runResult.ok && runResult.data
@@ -275,18 +277,24 @@ export class SwarmManager {
 			);
 		}
 
-		// Merge
-		const mergeResult = await mergeWorktree(branch, this.cwd);
-		if (!mergeResult.ok) {
-			return err(mergeResult.error!.code, mergeResult.error!.message, mergeResult.error!.details);
+		// Build merge prompt
+		const prompt = buildMergePrompt(branch, worktreePath);
+
+		// Run agent in the main worktree
+		const executor = new AgentExecutor();
+		const result = await executor.run(prompt, options.agentConfig, {
+			cwd: this.cwd,
+			onOutput: options.onOutput,
+		});
+
+		if (result.exitCode !== 0 && !result.aborted) {
+			return err("MERGE_FAILED", `Merge agent exited with code ${result.exitCode}`);
+		}
+		if (result.aborted) {
+			return err("MERGE_ABORTED", "Merge agent was aborted");
 		}
 
-		const { commitSha, filesChanged } = mergeResult.data!;
-
-		// Clean up: remove worktree + branch
-		await removeWorktree(worktreePath, branch, this.cwd);
-
-		// Destroy pane if it exists
+		// Clean up swarm state
 		if (runResult.ok && runResult.data) {
 			await this.session.destroyPane(runResult.data.paneId).catch(() => {});
 			await removeRun(this.projectName, this.repoRoot, prdName);
@@ -295,18 +303,16 @@ export class SwarmManager {
 		// Rebalance remaining panes
 		await this.session.rebalance(this.sessionName).catch(() => {});
 
-		return ok({
-			prdName,
-			commitSha,
-			filesChanged,
-			hadConflicts: false,
-		});
+		return ok({ prdNames: [prdName] });
 	}
 
 	/**
-	 * Merge all completed/stopped PRDs
+	 * Merge all completed/stopped/stale PRDs via an agent.
+	 *
+	 * The agent receives a prompt listing all eligible PRDs and merges them
+	 * one by one, cleaning up each worktree after.
 	 */
-	async mergeAll(): Promise<Result<MergeResult[]>> {
+	async mergeAll(options: MergeOptions): Promise<Result<MergeResult>> {
 		const runsResult = await reconcile(this.projectName, this.repoRoot, this.session);
 		if (!runsResult.ok) return err(runsResult.error!.code, runsResult.error!.message);
 
@@ -314,15 +320,43 @@ export class SwarmManager {
 			(r) => r.status === "completed" || r.status === "stopped" || r.status === "stale",
 		);
 
-		const results: MergeResult[] = [];
-		for (const run of mergeable) {
-			const mergeResult = await this.merge(run.prdName);
-			if (mergeResult.ok && mergeResult.data) {
-				results.push(mergeResult.data);
-			}
+		if (mergeable.length === 0) {
+			return ok({ prdNames: [] });
 		}
 
-		return ok(results);
+		// Build a prompt with all mergeable PRDs
+		const entries = mergeable.map((r) => ({
+			branch: r.branch,
+			worktreePath: r.worktree,
+		}));
+		const prompt = buildMergeAllPrompt(entries);
+
+		// Run agent in the main worktree
+		const executor = new AgentExecutor();
+		const result = await executor.run(prompt, options.agentConfig, {
+			cwd: this.cwd,
+			onOutput: options.onOutput,
+		});
+
+		if (result.exitCode !== 0 && !result.aborted) {
+			return err("MERGE_FAILED", `Merge agent exited with code ${result.exitCode}`);
+		}
+		if (result.aborted) {
+			return err("MERGE_ABORTED", "Merge agent was aborted");
+		}
+
+		// Clean up swarm state for all merged PRDs
+		const mergedNames: string[] = [];
+		for (const run of mergeable) {
+			await this.session.destroyPane(run.paneId).catch(() => {});
+			await removeRun(this.projectName, this.repoRoot, run.prdName);
+			mergedNames.push(run.prdName);
+		}
+
+		// Rebalance remaining panes
+		await this.session.rebalance(this.sessionName).catch(() => {});
+
+		return ok({ prdNames: mergedNames });
 	}
 
 	/**
@@ -466,30 +500,6 @@ export class SwarmManager {
 	}
 
 	/**
-	 * Check for merge conflicts across all running PRDs
-	 */
-	async conflicts(): Promise<Result<ConflictReport[]>> {
-		const runsResult = await reconcile(this.projectName, this.repoRoot, this.session);
-		if (!runsResult.ok) return err(runsResult.error!.code, runsResult.error!.message);
-
-		const reports: ConflictReport[] = [];
-
-		for (const run of runsResult.data!) {
-			const conflictResult = await checkMergeConflicts(run.branch, this.cwd);
-			if (conflictResult.ok && conflictResult.data && conflictResult.data.hasConflicts) {
-				reports.push({
-					prdName: run.prdName,
-					branch: run.branch,
-					conflictFiles: conflictResult.data.conflictFiles,
-					summary: `${conflictResult.data.conflictFiles.length} file(s) would conflict when merging "${run.branch}" into current branch`,
-				});
-			}
-		}
-
-		return ok(reports);
-	}
-
-	/**
 	 * Attach to a PRD's pane (interactive — delegates to session backend)
 	 */
 	async attach(prdName: string): Promise<Result<void>> {
@@ -557,6 +567,69 @@ export class SwarmManager {
 
 		return ok(undefined);
 	}
+}
+
+/**
+ * Build a merge prompt for a single branch.
+ */
+function buildMergePrompt(branch: string, worktreePath: string): string {
+	return `You are a git merge agent. Merge the branch "${branch}" into the current branch.
+
+## Instructions
+
+1. Run: git merge ${branch} --no-ff -m "merge: ${branch}"
+2. If there are merge conflicts:
+   - Read each conflicting file
+   - Resolve the conflict markers (<<<<<<< / ======= / >>>>>>>) intelligently
+   - Stage resolved files with: git add <file>
+   - Complete the merge with: git commit --no-edit
+3. After a successful merge, clean up:
+   - Remove the worktree: git worktree remove "${worktreePath}" --force
+   - Prune worktree entries: git worktree prune
+   - Delete the branch: git branch -D ${branch}
+4. Verify with: git log --oneline -1
+
+## Important
+
+- Do NOT create new branches or switch branches
+- If the merge is trivial (no conflicts), still complete all cleanup steps
+- If you cannot resolve a conflict, explain what went wrong and stop
+`;
+}
+
+/**
+ * Build a merge prompt for multiple branches.
+ */
+function buildMergeAllPrompt(entries: Array<{ branch: string; worktreePath: string }>): string {
+	const list = entries.map((e) => `- Branch: ${e.branch}, Worktree: ${e.worktreePath}`).join("\n");
+
+	return `You are a git merge agent. Merge the following branches into the current branch, one at a time in order.
+
+## Branches to merge
+
+${list}
+
+## Instructions (repeat for each branch)
+
+1. Run: git merge <branch> --no-ff -m "merge: <branch>"
+2. If there are merge conflicts:
+   - Read each conflicting file
+   - Resolve the conflict markers (<<<<<<< / ======= / >>>>>>>) intelligently
+   - Stage resolved files with: git add <file>
+   - Complete the merge with: git commit --no-edit
+3. After a successful merge, clean up:
+   - Remove the worktree: git worktree remove "<worktree-path>" --force
+   - Prune worktree entries: git worktree prune
+   - Delete the branch: git branch -D <branch>
+4. Verify with: git log --oneline -1
+5. Proceed to the next branch
+
+## Important
+
+- Merge branches one at a time, in the order listed
+- Do NOT create new branches or switch branches
+- If you cannot resolve a conflict for a branch, explain what went wrong and continue with the next branch
+`;
 }
 
 /**

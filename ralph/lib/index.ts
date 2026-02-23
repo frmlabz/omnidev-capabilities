@@ -294,7 +294,7 @@ export {
 	type StartOptions,
 	type TestOptions,
 	type MergeResult,
-	type ConflictReport,
+	type MergeOptions,
 	type RecoverResult,
 	type SwarmState,
 	type PersistedRunInstance,
@@ -311,8 +311,6 @@ export {
 	createWorktree,
 	removeWorktree,
 	hasUncommittedChanges,
-	mergeWorktree,
-	checkMergeConflicts,
 	getMainWorktreePath,
 	isMainWorktree,
 	// Swarm state

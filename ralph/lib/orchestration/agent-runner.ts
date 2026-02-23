@@ -23,6 +23,8 @@ export interface RunOptions {
 	onOutput?: (data: string) => void;
 	/** Callback for tool usage */
 	onTool?: (toolName: string) => void;
+	/** Working directory for the spawned process */
+	cwd?: string;
 }
 
 /**
@@ -97,6 +99,7 @@ export class AgentExecutor {
 		return new Promise((resolve, reject) => {
 			const proc = spawn(agentConfig.command, agentConfig.args, {
 				stdio: ["pipe", "pipe", "pipe"],
+				cwd: options?.cwd,
 			});
 
 			let stdout = "";

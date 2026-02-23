@@ -26,6 +26,7 @@ import {
 	canStartPRD,
 	extractAndSaveFindings,
 	findPRDLocation,
+	getPRD,
 	getProgress,
 	getSpec,
 	hasPRDFile,
@@ -947,18 +948,70 @@ async function createSwarmManager() {
 }
 
 /**
- * Format a run instance for display
+ * Format a run instance for display with PRD state and actionable hints
  */
-function formatRunInstance(run: {
-	prdName: string;
-	status: string;
-	worktree: string;
-	paneId: string;
-	startedAt: string;
-	branch: string;
-}) {
+async function formatRunInstance(
+	run: {
+		prdName: string;
+		status: string;
+		worktree: string;
+		paneId: string;
+		startedAt: string;
+		branch: string;
+	},
+	projectName: string,
+	repoRoot: string,
+): Promise<string[]> {
 	const elapsed = formatDuration(run.startedAt);
-	return `  ${run.prdName} [${run.status}] — ${elapsed} — pane: ${run.paneId}`;
+	const lines: string[] = [];
+
+	// Header line: name [run-status] — elapsed
+	const elapsedSuffix = run.status === "running" ? ` — ${elapsed}` : "";
+	lines.push(`  ${run.prdName} [${run.status}]${elapsedSuffix}`);
+
+	// PRD state line
+	const prdStatus = findPRDLocation(projectName, repoRoot, run.prdName);
+	if (prdStatus) {
+		const emoji = STATUS_EMOJI[prdStatus];
+		let progressStr = "";
+		try {
+			const prd = await getPRD(projectName, repoRoot, run.prdName);
+			const total = prd.stories.length;
+			const completed = prd.stories.filter((s) => s.status === "completed").length;
+			progressStr = ` [${completed}/${total}] - ${completed} done`;
+		} catch {
+			// PRD may be spec-only
+		}
+		lines.push(`    PRD: ${emoji} ${prdStatus}${progressStr}`);
+	}
+
+	// Worktree or pane line
+	if (run.status === "running") {
+		lines.push(`    Pane: ${run.paneId}`);
+	} else {
+		lines.push(`    Worktree: ${run.worktree}`);
+	}
+
+	// Actionable hint
+	const hint = getRunHint(run.status, prdStatus);
+	if (hint) {
+		lines.push(`    → ${hint.replace("<name>", run.prdName)}`);
+	}
+
+	return lines;
+}
+
+function getRunHint(runStatus: string, prdStatus: PRDStatus | null): string | null {
+	if (runStatus === "running") return null;
+
+	if (prdStatus === "completed") {
+		return "swarm merge <name> or swarm cleanup <name>";
+	}
+	if (prdStatus === "testing") {
+		return "swarm test <name> to resume, or swarm merge <name>";
+	}
+	// pending, in_progress, or unknown
+	return "swarm start <name> to resume";
 }
 
 async function runSwarmStart(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
@@ -1040,11 +1093,14 @@ async function runSwarmList(_flags: Record<string, unknown>): Promise<void> {
 		return;
 	}
 
-	console.log("\n=== Active Runs ===\n");
+	const { projectName, repoRoot } = await getProjectContext();
+
+	console.log("\n=== Swarm Runs ===\n");
 	for (const run of runs) {
-		console.log(formatRunInstance(run));
+		const lines = await formatRunInstance(run, projectName, repoRoot);
+		console.log(lines.join("\n"));
+		console.log();
 	}
-	console.log();
 }
 
 async function runSwarmAttach(_flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
@@ -1081,48 +1137,54 @@ async function runSwarmLogs(flags: Record<string, unknown>, prdName?: unknown): 
 }
 
 async function runSwarmMerge(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
+	const { getAgentConfig } = await import("./lib/core/config.js");
+	const configResult = await loadConfig();
+	if (!configResult.ok) {
+		console.error(configResult.error!.message);
+		process.exit(1);
+	}
+
+	const agentName = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
+	const agentResult = getAgentConfig(configResult.data!, agentName);
+	if (!agentResult.ok) {
+		console.error(agentResult.error!.message);
+		process.exit(1);
+	}
+
+	const mergeOptions = {
+		agentConfig: agentResult.data!,
+		onOutput: (data: string) => process.stdout.write(data),
+	};
+
 	const manager = await createSwarmManager();
 
 	if (flags["all"] === true) {
-		const result = await manager.mergeAll();
+		const result = await manager.mergeAll(mergeOptions);
 		if (!result.ok) {
 			console.error(`Error: ${result.error!.message}`);
 			process.exit(1);
 		}
-		const merged = result.data!;
-		if (merged.length === 0) {
+		const names = result.data!.prdNames;
+		if (names.length === 0) {
 			console.log("No runs to merge.");
 		} else {
-			for (const m of merged) {
-				console.log(
-					`Merged "${m.prdName}" — commit: ${m.commitSha.slice(0, 8)} — ${m.filesChanged.length} file(s)`,
-				);
-			}
+			console.log(`Merged: ${names.join(", ")}`);
 		}
 		return;
 	}
 
 	if (!prdName || typeof prdName !== "string") {
-		console.error("Usage: omnidev ralph swarm merge <prd-name> | --all");
+		console.error("Usage: omnidev ralph swarm merge <prd-name> [--agent <agent>] | --all");
 		process.exit(1);
 	}
 
-	const result = await manager.merge(prdName);
+	const result = await manager.merge(prdName, mergeOptions);
 	if (!result.ok) {
 		console.error(`Error: ${result.error!.message}`);
-		if (result.error!.details?.["conflictFiles"]) {
-			console.error("Conflicting files:");
-			for (const f of result.error!.details["conflictFiles"] as string[]) {
-				console.error(`  - ${f}`);
-			}
-		}
 		process.exit(1);
 	}
 
-	const m = result.data!;
-	console.log(
-		`Merged "${m.prdName}" — commit: ${m.commitSha.slice(0, 8)} — ${m.filesChanged.length} file(s)`,
-	);
+	console.log(`Merged "${prdName}".`);
 }
 
 async function runSwarmCleanup(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
@@ -1181,31 +1243,6 @@ async function runSwarmRecover(_flags: Record<string, unknown>): Promise<void> {
 	}
 	if (r.recovered.length === 0 && r.orphaned.length === 0 && r.cleaned.length === 0) {
 		console.log("Nothing to recover.");
-	}
-}
-
-async function runSwarmConflicts(_flags: Record<string, unknown>): Promise<void> {
-	const manager = await createSwarmManager();
-	const result = await manager.conflicts();
-
-	if (!result.ok) {
-		console.error(`Error: ${result.error!.message}`);
-		process.exit(1);
-	}
-
-	const reports = result.data!;
-	if (reports.length === 0) {
-		console.log("No merge conflicts detected.");
-		return;
-	}
-
-	console.log("\n=== Merge Conflicts ===\n");
-	for (const r of reports) {
-		console.log(`${r.prdName} (branch: ${r.branch}):`);
-		for (const f of r.conflictFiles) {
-			console.log(`  - ${f}`);
-		}
-		console.log();
 	}
 }
 
@@ -1269,10 +1306,11 @@ const swarmLogsCommand = command({
 });
 
 const swarmMergeCommand = command({
-	brief: "Merge a PRD's branch into main",
+	brief: "Merge a PRD's branch into main (agent-driven)",
 	parameters: {
 		flags: {
 			all: { kind: "boolean", brief: "Merge all completed/stopped PRDs", optional: true },
+			agent: { kind: "string", brief: "Agent to use for merge", optional: true },
 		},
 		positional: [{ brief: "PRD name", kind: "string", optional: true }],
 	},
@@ -1296,12 +1334,6 @@ const swarmRecoverCommand = command({
 	func: runSwarmRecover,
 });
 
-const swarmConflictsCommand = command({
-	brief: "Check for merge conflicts across running PRDs",
-	parameters: {},
-	func: runSwarmConflicts,
-});
-
 const swarmRoutes = routes({
 	brief: "Parallel PRD execution via worktrees + tmux",
 	routes: {
@@ -1314,7 +1346,6 @@ const swarmRoutes = routes({
 		merge: swarmMergeCommand,
 		cleanup: swarmCleanupCommand,
 		recover: swarmRecoverCommand,
-		conflicts: swarmConflictsCommand,
 	},
 });
 
