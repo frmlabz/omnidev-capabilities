@@ -1,5 +1,5 @@
 /**
- * Tests for Ralph orchestrator
+ * Tests for Ralph orchestration engine
  */
 
 import assert from "node:assert";
@@ -7,7 +7,13 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, it } from "node:test";
-import { loadRalphConfig, runAgent, getStatusDir, ensureDirectories } from "./lib/index.js";
+import {
+	loadConfig,
+	getAgentExecutor,
+	createEngine,
+	getStatusDir,
+	ensureDirectories,
+} from "./lib/index.js";
 import type { PRD } from "./lib/types.js";
 
 const PROJECT_NAME = "test";
@@ -90,7 +96,9 @@ afterEach(() => {
 });
 
 it("loads valid config", async () => {
-	const config = await loadRalphConfig();
+	const result = await loadConfig();
+	assert.ok(result.ok);
+	const config = result.data!;
 
 	assert.strictEqual(config.default_agent, "test");
 	assert.strictEqual(config.default_iterations, 5);
@@ -100,56 +108,63 @@ it("loads valid config", async () => {
 	});
 });
 
-it("throws if config doesn't exist", async () => {
+it("returns error if config doesn't exist", async () => {
 	rmSync(join(testDir, "omni.toml"));
 
-	await assert.rejects(loadRalphConfig(), /Configuration file not found/);
+	const result = await loadConfig();
+	assert.ok(!result.ok);
+	assert.ok(result.error!.message.includes("Configuration file not found"));
 });
 
-it("throws if config is invalid", async () => {
+it("returns error if config is invalid", async () => {
 	writeFileSync(join(testDir, "omni.toml"), "invalid toml");
 
-	await assert.rejects(loadRalphConfig());
+	const result = await loadConfig();
+	assert.ok(!result.ok);
 });
 
 it("parses multiple agents", async () => {
-	const config = await loadRalphConfig();
+	const result = await loadConfig();
+	assert.ok(result.ok);
+	const config = result.data!;
 
 	assert.ok(config.agents["test"] !== undefined);
 	assert.ok(config.agents["claude"] !== undefined);
 	assert.strictEqual(config.agents["claude"]?.command, "npx");
 });
 
-it("spawns agent with prompt", async () => {
+it("spawns agent with prompt via AgentExecutor", async () => {
+	const executor = getAgentExecutor();
 	const agentConfig = {
 		command: "echo",
 		args: ["hello"],
 	};
 
-	const result = await runAgent("test prompt", agentConfig);
+	const result = await executor.run("test prompt", agentConfig);
 
 	assert.ok(result.output.includes("hello"));
 	assert.strictEqual(result.exitCode, 0);
 });
 
-it("returns exit code on failure", async () => {
+it("returns exit code on failure via AgentExecutor", async () => {
+	const executor = getAgentExecutor();
 	const agentConfig = {
 		command: "false", // Command that always fails
 		args: [],
 	};
 
-	const result = await runAgent("test", agentConfig);
+	const result = await executor.run("test", agentConfig);
 
 	assert.strictEqual(result.exitCode, 1);
 });
 
-it("throws if PRD doesn't exist", async () => {
-	const { runOrchestration } = await import("./lib/index.js");
+it("returns error when PRD doesn't exist", async () => {
+	const engine = createEngine({ projectName: PROJECT_NAME, repoRoot: REPO_ROOT });
 
-	await assert.rejects(
-		runOrchestration(PROJECT_NAME, REPO_ROOT, "nonexistent"),
-		/PRD not found: nonexistent/,
-	);
+	const result = await engine.runDevelopment("nonexistent");
+
+	assert.ok(!result.ok);
+	assert.ok(result.error!.message.includes("nonexistent"));
 });
 
 it("stops when blocked stories exist", async () => {
@@ -167,12 +182,11 @@ it("stops when blocked stories exist", async () => {
 		],
 	});
 
-	const { runOrchestration } = await import("./lib/index.js");
+	const engine = createEngine({ projectName: PROJECT_NAME, repoRoot: REPO_ROOT });
+	const result = await engine.runDevelopment("blocked-prd");
 
-	// Should stop immediately due to blocked story
-	await runOrchestration(PROJECT_NAME, REPO_ROOT, "blocked-prd");
-
-	// No crash = success
+	assert.ok(result.ok);
+	assert.strictEqual(result.data!.outcome, "blocked");
 });
 
 it("completes when no stories remain", async () => {
@@ -190,10 +204,9 @@ it("completes when no stories remain", async () => {
 		],
 	});
 
-	const { runOrchestration } = await import("./lib/index.js");
+	const engine = createEngine({ projectName: PROJECT_NAME, repoRoot: REPO_ROOT });
+	const result = await engine.runDevelopment("completed-prd");
 
-	// Should complete immediately without running agent
-	await runOrchestration(PROJECT_NAME, REPO_ROOT, "completed-prd");
-
-	// No crash = success
+	assert.ok(result.ok);
+	assert.strictEqual(result.data!.outcome, "moved_to_testing");
 });

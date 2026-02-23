@@ -34,9 +34,83 @@ import {
 	movePRD,
 	unblockStory,
 	loadConfig,
+	createEngine,
+	type EngineEvent,
 } from "./lib/index.js";
+import { getAgentConfig } from "./lib/core/config.js";
+import { getAgentExecutor } from "./lib/orchestration/agent-runner.js";
 import { getStatusDir } from "./lib/core/paths.js";
 import type { PRD, PRDStatus, Story } from "./lib/types.js";
+
+/**
+ * Translate engine events to console output
+ */
+function consoleEventHandler(event: EngineEvent): void {
+	switch (event.type) {
+		case "log":
+			if (event.level === "error") console.error(event.message);
+			else if (event.level === "warn") console.log(`⚠️  ${event.message}`);
+			else console.log(event.message);
+			break;
+		case "agent_output":
+			process.stdout.write(event.data);
+			break;
+		case "agent_exit":
+			console.log(`\n--- Exit Code: ${event.code} ---\n`);
+			break;
+		case "iteration":
+			console.log(`\n=== Iteration ${event.current}/${event.max} ===`);
+			break;
+		case "story_update":
+			if (event.status === "completed") console.log(`✓ Story ${event.storyId} completed`);
+			else if (event.status === "blocked") console.log(`🚫 Story ${event.storyId} blocked`);
+			break;
+		case "state_change":
+			console.log(`PRD moved from ${event.from} to ${event.to}`);
+			break;
+		case "health_check_start":
+			console.log(`Waiting for health check (timeout: ${event.timeout}s)...`);
+			break;
+		case "health_check_progress":
+			process.stdout.write(`\rHealth check pending... ${event.elapsed}s / ${event.timeout}s`);
+			break;
+		case "health_check_passed":
+			console.log("Health check passed!");
+			break;
+		case "health_check_failed":
+			console.log(`\n⚠️  ${event.error}`);
+			break;
+		case "review_start":
+			console.log(`\n=== Review Phase: ${event.phase} ===`);
+			break;
+		case "review_agent_complete":
+			console.log(
+				`Review (${event.reviewType}): ${event.decision}, ${event.findingsCount} findings`,
+			);
+			break;
+		case "review_fix_start":
+			console.log(`Fixing ${event.findingsCount} findings (iteration ${event.iteration})...`);
+			break;
+		case "review_phase_complete":
+			console.log(`Review phase ${event.phase} complete${event.clean ? " (clean)" : ""}`);
+			break;
+		case "test_complete":
+			if (event.result === "verified") console.log("\n✅ PRD_VERIFIED!");
+			else if (event.result === "failed") {
+				console.log("\n❌ PRD_FAILED!");
+				if (event.issues?.length) {
+					for (const issue of event.issues) console.log(`  - ${issue}`);
+				}
+			} else console.log("\n⚠️  No clear test result signal detected.");
+			break;
+		case "complete":
+			// Handled in the result processing
+			break;
+		case "error":
+			console.error(`Error: ${event.error}`);
+			break;
+	}
+}
 
 /**
  * Resolve projectName + repoRoot from config and git. Cached per process.
@@ -514,9 +588,53 @@ export async function runStart(flags: Record<string, unknown>, prdName?: unknown
 		}
 	}
 
-	// Import and run orchestration
-	const { runOrchestration } = await import("./lib/index.js");
-	await runOrchestration(projectName, repoRoot, prdName, agentOverride);
+	// Run orchestration via engine
+	const engine = createEngine({ projectName, repoRoot });
+	const controller = new AbortController();
+
+	const shutdownHandler = async () => {
+		console.log("\n\nInterrupted! Saving state...");
+		controller.abort();
+	};
+	process.on("SIGINT", shutdownHandler);
+	process.on("SIGTERM", shutdownHandler);
+
+	try {
+		const result = await engine.runDevelopment(prdName, {
+			agent: agentOverride,
+			signal: controller.signal,
+			onEvent: consoleEventHandler,
+		});
+
+		if (!result.ok) {
+			console.error(`Error: ${result.error!.message}`);
+			process.exit(1);
+		}
+
+		const data = result.data!;
+		switch (data.outcome) {
+			case "moved_to_testing":
+				console.log("\nPRD moved to testing. Next steps:");
+				console.log(`  omnidev ralph test ${prdName}                 # run automated tests`);
+				console.log(`  omnidev ralph complete ${prdName}             # if verified`);
+				console.log(`  omnidev ralph prd ${prdName} --move in_progress # if issues found`);
+				break;
+			case "blocked":
+				console.log(`\n${data.message}`);
+				console.log(`\nResolve blocked stories, then: omnidev ralph start ${prdName}`);
+				break;
+			case "max_iterations":
+				console.log(`\n${data.message}`);
+				console.log(`Run 'omnidev ralph start ${prdName}' again to continue.`);
+				break;
+			case "aborted":
+				console.log("State saved.");
+				break;
+		}
+	} finally {
+		process.removeListener("SIGINT", shutdownHandler);
+		process.removeListener("SIGTERM", shutdownHandler);
+	}
 }
 
 /**
@@ -813,20 +931,28 @@ export async function runComplete(
 
 	console.log(`Completing PRD: ${prdName}`);
 
-	// Load config and run LLM to extract findings
-	const { loadRalphConfig, runAgent } = await import("./lib/index.js");
-
 	try {
-		const config = await loadRalphConfig();
-		const agentConfig = config.agents[config.default_agent];
-
-		if (!agentConfig) {
-			console.error(`Agent '${config.default_agent}' not found in config.`);
+		const configResult = await loadConfig();
+		if (!configResult.ok) {
+			console.error(configResult.error!.message);
 			process.exit(1);
 		}
+		const config = configResult.data!;
+		const agentConfigResult = getAgentConfig(config);
+		if (!agentConfigResult.ok) {
+			console.error(agentConfigResult.error!.message);
+			process.exit(1);
+		}
+		const agentConfig = agentConfigResult.data!;
+
+		const executor = getAgentExecutor();
+		const runAgentFn = async (prompt: string, cfg: typeof agentConfig) => {
+			const result = await executor.run(prompt, cfg);
+			return { output: result.output, exitCode: result.exitCode };
+		};
 
 		console.log("Extracting findings via LLM...");
-		await extractAndSaveFindings(projectName, repoRoot, prdName, agentConfig, runAgent);
+		await extractAndSaveFindings(projectName, repoRoot, prdName, agentConfig, runAgentFn);
 		console.log("Findings saved to PRD directory");
 
 		console.log("Moving PRD to completed...");
@@ -887,21 +1013,34 @@ export async function runTest(flags: Record<string, unknown>, prdName?: unknown)
 		process.exit(1);
 	}
 
-	// Import and run testing
-	const { runTesting } = await import("./lib/index.js");
+	// Run testing via engine
+	const engine = createEngine({ projectName, repoRoot });
 
 	try {
-		const { result } = await runTesting(projectName, repoRoot, prdName, agentOverride);
+		const result = await engine.runTesting(prdName, {
+			agent: agentOverride,
+			onEvent: consoleEventHandler,
+		});
 
+		if (!result.ok) {
+			console.error(`Error: ${result.error!.message}`);
+			process.exit(1);
+		}
+
+		const data = result.data!;
 		// Exit codes based on result
-		if (result === "verified") {
-			// Success - PRD completed automatically
+		if (data.outcome === "verified") {
+			console.log(`\n🎉 PRD "${prdName}" has been completed!`);
 			process.exit(0);
-		} else if (result === "failed") {
-			// Failed - fix story created, moved to pending
+		} else if (data.outcome === "failed") {
+			console.log(`\nPRD "${prdName}" moved back to in_progress.`);
+			console.log(`To fix issues: omnidev ralph start ${prdName}`);
 			process.exit(1);
 		} else {
 			// Unknown - manual action needed
+			console.log(`\nManual action required:`);
+			console.log(`  omnidev ralph complete ${prdName}       # if tests passed`);
+			console.log(`  omnidev ralph prd ${prdName} --move in_progress  # if issues found`);
 			process.exit(2);
 		}
 	} catch (error) {

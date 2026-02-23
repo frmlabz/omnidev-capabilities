@@ -24,6 +24,8 @@ import { type AgentExecutor, getAgentExecutor } from "./agent-runner.js";
 import { generatePrompt } from "../prompt.js";
 import {
 	generateTestPrompt,
+	generateRetestPrompt,
+	getPreviousFailures,
 	detectTestResult,
 	detectHealthCheckResult,
 	extractIssues,
@@ -509,10 +511,22 @@ export class OrchestrationEngine {
 			}
 		}
 
-		// Clear previous results
-		this.ctx.store.clearTestResults(prdName);
+		// Check for previous failures (focused retest)
+		const previousFailures = await getPreviousFailures(
+			this.ctx.projectName,
+			this.ctx.repoRoot,
+			prdName,
+		);
+		const isFocusedRetest = previousFailures !== null && previousFailures.length > 0;
 
-		log("info", `Starting testing for PRD: ${prdName}`);
+		if (isFocusedRetest) {
+			log("info", `Found ${previousFailures.length} previous failure(s) - running focused retest`);
+		} else {
+			// Clear previous results only for full test runs
+			this.ctx.store.clearTestResults(prdName);
+		}
+
+		log("info", `Starting ${isFocusedRetest ? "focused retest" : "testing"} for PRD: ${prdName}`);
 
 		// Run scripts
 		const scripts = getScriptsConfig(config);
@@ -595,13 +609,16 @@ export class OrchestrationEngine {
 			break;
 		}
 
-		// Generate prompt and run
-		const prompt = await generateTestPrompt(
-			this.ctx.projectName,
-			this.ctx.repoRoot,
-			prdName,
-			config,
-		);
+		// Generate prompt (focused or full)
+		const prompt = isFocusedRetest
+			? await generateRetestPrompt(
+					this.ctx.projectName,
+					this.ctx.repoRoot,
+					prdName,
+					previousFailures,
+					config,
+				)
+			: await generateTestPrompt(this.ctx.projectName, this.ctx.repoRoot, prdName, config);
 
 		log("info", "Spawning test agent...");
 		const result = await this.ctx.agentExecutor.run(prompt, agentConfig, {
@@ -620,19 +637,51 @@ export class OrchestrationEngine {
 
 		await saveTestReport(this.ctx.projectName, this.ctx.repoRoot, prdName, report);
 
-		// Teardown
-		log("info", "Running teardown...");
-		await this.runScript(scripts.teardown, "teardown", prdName);
+		// Helper to run teardown
+		const runTeardown = async () => {
+			log("info", "Running teardown...");
+			await this.runScript(scripts.teardown, "teardown", prdName);
+		};
 
 		// Handle result
 		if (testResult === "verified") {
 			log("info", "PRD_VERIFIED - moving to completed");
 			await extractAndSaveFindings(this.ctx.projectName, this.ctx.repoRoot, prdName);
 
+			// Update documentation if configured
+			if (config.docs?.path && config.docs.auto_update !== false) {
+				const docsPath = join(process.cwd(), config.docs.path);
+				try {
+					const { updateDocumentation } = await import("../documentation.js");
+					const runAgentFn = async (p: string, c: AgentConfig) => {
+						const r = await this.ctx.agentExecutor.run(p, c, { signal });
+						return { output: r.output, exitCode: r.exitCode };
+					};
+					const docResults = await updateDocumentation(
+						this.ctx.projectName,
+						this.ctx.repoRoot,
+						prdName,
+						docsPath,
+						agentConfig,
+						runAgentFn,
+					);
+					if (docResults.updated.length > 0) {
+						log("info", `Documentation updated: ${docResults.updated.join(", ")}`);
+					}
+				} catch (error) {
+					log(
+						"warn",
+						`Documentation update failed: ${error instanceof Error ? error.message : error}`,
+					);
+				}
+			}
+
 			const oldStatus = this.ctx.store.findLocation(prdName) ?? "testing";
 			await this.ctx.store.transition(prdName, "completed");
 			emit({ type: "state_change", prdName, from: oldStatus, to: "completed" });
 			emit({ type: "test_complete", result: "verified" });
+
+			await runTeardown();
 
 			return ok({
 				prdName,
@@ -652,6 +701,8 @@ export class OrchestrationEngine {
 			emit({ type: "state_change", prdName, from: oldStatus, to: "pending" });
 			emit({ type: "test_complete", result: "failed", issues });
 
+			await runTeardown();
+
 			return ok({
 				prdName,
 				outcome: "failed",
@@ -661,6 +712,8 @@ export class OrchestrationEngine {
 		}
 
 		// Unknown result
+		await runTeardown();
+
 		log("warn", "No clear test result signal detected");
 		emit({ type: "test_complete", result: "unknown" });
 

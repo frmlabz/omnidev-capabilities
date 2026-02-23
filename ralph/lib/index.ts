@@ -188,15 +188,6 @@ export {
 	updateStoryStatus,
 } from "./state.js";
 
-// Legacy Orchestration (for backward compatibility)
-// loadRalphConfig throws on error (legacy behavior)
-export {
-	loadRalphConfig,
-	runAgent,
-	runOrchestration,
-	type RunAgentOptions,
-} from "./orchestrator.js";
-
 // Orchestration - Review Engine
 export { ReviewEngine } from "./orchestration/review-engine.js";
 
@@ -228,8 +219,9 @@ export {
 	detectTestResult,
 	extractIssues,
 	generateTestPrompt,
+	generateRetestPrompt,
+	getPreviousFailures,
 	parseTestReport,
-	runTesting,
 	saveTestReport,
 } from "./testing.js";
 
