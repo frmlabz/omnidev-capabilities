@@ -151,10 +151,10 @@ All stories complete
 | Agent | Focus | Model |
 |-------|-------|-------|
 | `quality` | Bugs, security, race conditions, error handling | sonnet |
-| `implementation` | Spec compliance, acceptance criteria | sonnet |
+| `implementation` | Spec compliance, acceptance criteria | opus |
 | `testing` | Test coverage, assertion quality, edge cases | sonnet |
-| `simplification` | Over-engineering, dead code, unnecessary abstractions | sonnet |
-| `documentation` | Missing/outdated docs, README updates | haiku |
+| `simplification` | Over-engineering, dead code, unnecessary abstractions | opus |
+| `documentation` | Missing/outdated docs, README updates | sonnet |
 
 All review agents are read-only — they cannot modify files. Each agent outputs a structured result:
 
@@ -216,6 +216,7 @@ The external tool receives a simplified review prompt with the git diff and acce
 ### Review Results
 
 Review results are saved to `<state-dir>/prds/<status>/<prd-name>/review-results/`:
+
 - `first-review.md` — Phase 1 results
 - `external-review.md` — Phase 2 results (if external tool configured)
 - `second-review.md` — Phase 3 results
@@ -232,6 +233,7 @@ When disabled, Ralph goes straight from development completion to testing (the o
 ## Testing Workflow
 
 When all stories are completed, Ralph automatically:
+
 1. Generates `verification.md` - a checklist of things to test
 2. Moves the PRD to `testing` status
 
@@ -242,6 +244,7 @@ omnidev ralph test my-feature
 ```
 
 The test agent will:
+
 - Run teardown first (ensure clean state from previous runs)
 - Run setup scripts (database reset, seeding)
 - Start the dev server
@@ -258,12 +261,15 @@ The test agent will:
 The test agent outputs one of these signals:
 
 **Success:**
+
 ```
 <test-result>PRD_VERIFIED</test-result>
 ```
+
 → PRD automatically moves to `completed`
 
 **Failure:**
+
 ```
 <test-result>PRD_FAILED</test-result>
 <issues>
@@ -271,6 +277,7 @@ The test agent outputs one of these signals:
 - Issue description 2
 </issues>
 ```
+
 → Fix story created (FIX-001, FIX-002, etc.), PRD moves back to `in_progress`
 
 ## Configuration
