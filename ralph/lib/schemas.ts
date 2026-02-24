@@ -25,7 +25,7 @@ export const StorySchema = z.object({
 	title: z.string().min(1),
 	acceptanceCriteria: z.array(z.string()),
 	status: StoryStatusSchema,
-	priority: z.number().int().min(1).max(10),
+	priority: z.number().int().min(1),
 	questions: z.array(z.string()).default([]),
 	answers: z.array(z.string()).optional(),
 	iterationCount: z.number().int().min(0).optional(),
