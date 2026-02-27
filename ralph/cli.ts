@@ -253,6 +253,7 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 			const statusEmoji = STATUS_EMOJI[status];
 			console.log(`${statusEmoji} ${name} [spec only] - awaiting story creation`);
 			console.log(`  Use /prd to complete story breakdown, or: omnidev ralph spec ${name}`);
+			console.log(`  Dir: ${prdDir}`);
 			console.log();
 			continue;
 		}
@@ -276,10 +277,10 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 			// Show status emoji and runnable indicator
 			const statusEmoji = STATUS_EMOJI[status];
 			let runnableIndicator = "";
-			if (status === "pending") {
-				if (blocked > 0) {
-					runnableIndicator = " 🚫";
-				} else if (depInfo?.canStart) {
+			if (blocked > 0 && status !== "completed") {
+				runnableIndicator = " 🚫";
+			} else if (status === "pending") {
+				if (depInfo?.canStart) {
 					runnableIndicator = " 🟢";
 				} else {
 					runnableIndicator = " 🔒";
@@ -318,6 +319,7 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 				}
 				console.log(`  Time: ${timingParts.join(", ")}`);
 			}
+			console.log(`  Dir: ${prdDir}`);
 			console.log();
 		} catch {
 			console.log(`${name} - (invalid prd.json)`);
@@ -1117,11 +1119,25 @@ async function formatRunInstance(
 			const prd = await getPRD(projectName, repoRoot, run.prdName);
 			const total = prd.stories.length;
 			const completed = prd.stories.filter((s) => s.status === "completed").length;
-			progressStr = ` [${completed}/${total}] - ${completed} done`;
+			const inProgress = prd.stories.filter((s) => s.status === "in_progress").length;
+			const blocked = prd.stories.filter((s) => s.status === "blocked").length;
+
+			const parts: string[] = [];
+			if (completed > 0) parts.push(`${completed} done`);
+			if (inProgress > 0) parts.push(`${inProgress} in progress`);
+			if (blocked > 0) parts.push(`${blocked} blocked`);
+			const statusSuffix = parts.length > 0 ? parts.join(", ") : "not started";
+			progressStr = ` [${completed}/${total}] - ${statusSuffix}`;
 		} catch {
 			// PRD may be spec-only
 		}
 		lines.push(`    PRD: ${emoji} ${prdStatus}${progressStr}`);
+	}
+
+	// PRD directory line
+	if (prdStatus) {
+		const prdDir = join(getStatusDir(projectName, repoRoot, prdStatus), run.prdName);
+		lines.push(`    Dir: ${prdDir}`);
 	}
 
 	// Worktree or pane line

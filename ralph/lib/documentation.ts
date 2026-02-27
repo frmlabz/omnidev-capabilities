@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import type { AgentConfig, PRD } from "./types.js";
 import { getPRD, getProgress, getSpec } from "./state.js";
 
@@ -64,6 +64,7 @@ Important:
 
 export interface DocFile {
 	path: string;
+	relativePath: string;
 	name: string;
 	content: string;
 }
@@ -84,17 +85,24 @@ export function findDocFiles(docsPath: string): DocFile[] {
 	}
 
 	const docs: DocFile[] = [];
-
-	try {
-		const entries = readdirSync(docsPath, { withFileTypes: true });
-
-		for (const entry of entries) {
-			if (entry.isFile() && entry.name.endsWith(".md")) {
-				const filePath = join(docsPath, entry.name);
+	const walk = (dir: string) => {
+		try {
+			const entries = readdirSync(dir, { withFileTypes: true });
+			for (const entry of entries) {
+				const fullPath = join(dir, entry.name);
+				if (entry.isDirectory()) {
+					walk(fullPath);
+					continue;
+				}
+				if (!entry.isFile() || !entry.name.endsWith(".md")) {
+					continue;
+				}
 				try {
-					const content = readFileSync(filePath, "utf-8");
+					const content = readFileSync(fullPath, "utf-8");
+					const relPath = relative(docsPath, fullPath).split(sep).join("/");
 					docs.push({
-						path: filePath,
+						path: fullPath,
+						relativePath: relPath,
 						name: entry.name,
 						content,
 					});
@@ -102,10 +110,12 @@ export function findDocFiles(docsPath: string): DocFile[] {
 					// Skip files that can't be read
 				}
 			}
+		} catch {
+			// Directory not readable
 		}
-	} catch {
-		// Directory not readable
-	}
+	};
+
+	walk(docsPath);
 
 	return docs;
 }
@@ -149,7 +159,7 @@ export async function generateDocumentationUpdatePrompt(
 			const lines = doc.content.split("\n");
 			const heading = lines.find((l) => l.startsWith("# "))?.replace("# ", "") || doc.name;
 			const firstPara = lines.find((l) => l.trim() && !l.startsWith("#"))?.slice(0, 200) || "";
-			return `- **${doc.name}**: ${heading}\n  ${firstPara}${firstPara.length >= 200 ? "..." : ""}`;
+			return `- **${doc.relativePath}**: ${heading}\n  ${firstPara}${firstPara.length >= 200 ? "..." : ""}`;
 		})
 		.join("\n");
 
@@ -249,6 +259,36 @@ export async function applyDocumentationUpdates(
 	docsPath: string,
 ): Promise<{ updated: string[]; skipped: string[]; errors: string[] }> {
 	const { writeFileSync } = await import("node:fs");
+	const docsRoot = resolve(docsPath);
+	const docsBaseName = basename(docsRoot);
+
+	const toDocRelativePath = (file: string): string | null => {
+		const trimmed = file.trim();
+		if (!trimmed) return null;
+
+		// Agent may return:
+		// - "file.md"
+		// - "specs/file.md"
+		// - "docs/specs/file.md"
+		// - "/abs/path/to/repo/docs/specs/file.md"
+		let normalized = trimmed.split("\\").join("/");
+
+		if (isAbsolute(normalized)) {
+			const rel = relative(docsRoot, normalized).split(sep).join("/");
+			if (rel.startsWith("..")) return null;
+			normalized = rel;
+		}
+
+		if (normalized === docsBaseName) {
+			return null;
+		}
+		if (normalized.startsWith(`${docsBaseName}/`)) {
+			normalized = normalized.slice(docsBaseName.length + 1);
+		}
+		normalized = normalized.replace(/^\.?\//, "");
+		if (!normalized || normalized.startsWith("..")) return null;
+		return normalized;
+	};
 
 	const updates = parseDocumentationUpdates(output);
 	const results = {
@@ -262,7 +302,17 @@ export async function applyDocumentationUpdates(
 	}
 
 	for (const update of updates) {
-		const filePath = join(docsPath, update.file);
+		const relativeTarget = toDocRelativePath(update.file);
+		if (!relativeTarget) {
+			results.skipped.push(`${update.file} (invalid path)`);
+			continue;
+		}
+
+		const filePath = resolve(join(docsRoot, normalize(relativeTarget)));
+		if (!filePath.startsWith(`${docsRoot}${sep}`) && filePath !== docsRoot) {
+			results.skipped.push(`${update.file} (path escapes docs directory)`);
+			continue;
+		}
 
 		// Verify the file exists (we only update existing docs, don't create new ones)
 		if (!existsSync(filePath)) {
@@ -272,8 +322,8 @@ export async function applyDocumentationUpdates(
 
 		try {
 			writeFileSync(filePath, update.content, "utf-8");
-			results.updated.push(update.file);
-			console.log(`  ✓ Updated ${update.file}: ${update.changes.split("\n")[0]}`);
+			results.updated.push(relativeTarget);
+			console.log(`  ✓ Updated ${relativeTarget}: ${update.changes.split("\n")[0]}`);
 		} catch (error) {
 			const errMsg = error instanceof Error ? error.message : String(error);
 			results.errors.push(`${update.file}: ${errMsg}`);
