@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Per-phase agent configuration for verification and docs** — New `verification_agent` field under `[ralph]` and `agent` field under `[ralph.docs]` allow routing verification generation and documentation updates to different LLM agents. Both fall back independently to `default_agent` (no chain through `review.agent`). Existing configs with no new fields produce identical behavior.
 - **Per-phase agent configuration for review pipeline** — New `[ralph.review]` fields `agent`, `fix_agent`, and `finalize_agent` allow routing each review phase to a different LLM agent. Fallback chain: `fix_agent` → `agent` → `default_agent`, `finalize_agent` → `agent` → `default_agent`. Existing configs with no new fields produce identical behavior.
 - **Custom worktree creation command** — `[ralph.swarm] worktree_create_cmd` allows using a custom tool (e.g., `wt switch -c {name}`) instead of the default `git worktree add`. The command runs inside the tmux pane, so tools that CD the shell work correctly. Placeholders: `{name}`, `{path}`, `{branch}`.
 - **Internal rename: runner → swarm, AgentRunner → AgentExecutor** — All internal code now uses `swarm` (matching the CLI sub-command) instead of `runner`. The `AgentRunner` class (which spawns individual agent processes) is renamed to `AgentExecutor` to avoid ambiguity. Config key changed from `[ralph.runner]` to `[ralph.swarm]`. State file changed from `runner.json` to `swarm.json`.

@@ -30,6 +30,7 @@ interface RawTomlConfig {
 		project_name?: string;
 		default_agent?: string;
 		default_iterations?: number;
+		verification_agent?: string;
 		agents?: Record<string, RawAgentConfig>;
 		testing?: RawTestingConfig;
 		scripts?: RawScriptsConfig;
@@ -66,6 +67,7 @@ interface RawScriptsConfig {
 interface RawDocsConfig {
 	path?: string;
 	auto_update?: boolean;
+	agent?: string;
 }
 
 interface RawReviewConfig {
@@ -109,6 +111,9 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 	}
 	if (ralph.default_iterations !== undefined) {
 		config.default_iterations = ralph.default_iterations;
+	}
+	if (ralph.verification_agent) {
+		config.verification_agent = ralph.verification_agent;
 	}
 
 	// Agents
@@ -171,6 +176,9 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 	};
 	if (ralph.docs?.auto_update !== undefined) {
 		docs.auto_update = ralph.docs.auto_update;
+	}
+	if (ralph.docs?.agent) {
+		docs.agent = ralph.docs.agent;
 	}
 	config.docs = docs;
 

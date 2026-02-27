@@ -102,6 +102,7 @@ export const ScriptsConfigSchema = z.object({
 export const DocsConfigSchema = z.object({
 	path: z.string().min(1),
 	auto_update: z.boolean().optional().default(true),
+	agent: z.string().optional(),
 });
 
 /**
@@ -146,6 +147,7 @@ export const RalphConfigSchema = z.object({
 	default_agent: z.string().min(1),
 	default_iterations: z.number().int().min(1),
 	agents: z.record(z.string(), AgentConfigSchema),
+	verification_agent: z.string().optional(),
 	testing: TestingConfigSchema.optional(),
 	scripts: ScriptsConfigSchema.optional(),
 	docs: DocsConfigSchema.optional(),

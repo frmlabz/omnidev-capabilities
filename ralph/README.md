@@ -216,7 +216,12 @@ max_fix_iterations = 3
 | Finalize | `review.finalize_agent` → `review.agent` → `default_agent` |
 | External review | `review.review_agent` (looked up in `[ralph.agents.*]`) |
 
-Development, verification, testing, and docs always use `default_agent` (or `--agent` CLI flag).
+Verification and docs have their own optional overrides (independent of the review pipeline):
+
+| Phase | Resolution |
+|-------|-----------|
+| Verification | `verification_agent` → `default_agent` |
+| Documentation | `docs.agent` → `default_agent` |
 
 ### External Review
 
@@ -309,6 +314,7 @@ Configuration lives in `omni.toml` under the `[ralph]` section:
 project_name = "my-app"       # Required. Slug format: lowercase, hyphens, no leading/trailing hyphens.
 default_agent = "claude"
 default_iterations = 10
+# verification_agent = "claude-opus"  # Optional. Agent for verification generation (default: default_agent)
 
 [ralph.testing]
 # Quality checks the agent must run
@@ -338,6 +344,11 @@ setup = "./scripts/ralph/setup.sh"
 start = "./scripts/ralph/start.sh"
 health_check = "./scripts/ralph/health-check.sh"
 teardown = "./scripts/ralph/teardown.sh"
+
+# [ralph.docs]
+# path = "docs"            # Documentation directory (default: "docs")
+# auto_update = true        # Update docs on PRD completion (default: true)
+# agent = "claude-opus"     # Optional. Agent for doc updates (default: default_agent)
 
 [ralph.agents.claude]
 command = "npx"

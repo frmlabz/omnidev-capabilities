@@ -436,7 +436,14 @@ export class OrchestrationEngine {
 		await this.ctx.store.transition(prdName, "testing");
 		emit({ type: "state_change", prdName, from: oldStatus, to: "testing" });
 
-		// Generate verification
+		// Generate verification — use verification_agent if configured, else fall back to development agentConfig
+		let verificationAgentConfig = agentConfig;
+		if (configResult.ok && configResult.data!.verification_agent) {
+			const vResult = getAgentConfig(configResult.data!, configResult.data!.verification_agent);
+			if (vResult.ok) {
+				verificationAgentConfig = vResult.data!;
+			}
+		}
 		try {
 			const runAgentFn = async (prompt: string, config: AgentConfig) => {
 				const result = await this.ctx.agentExecutor.run(prompt, config, { signal });
@@ -446,7 +453,7 @@ export class OrchestrationEngine {
 				this.ctx.projectName,
 				this.ctx.repoRoot,
 				prdName,
-				agentConfig,
+				verificationAgentConfig,
 				runAgentFn,
 			);
 		} catch {
@@ -658,10 +665,17 @@ export class OrchestrationEngine {
 			log("info", "PRD_VERIFIED - moving to completed");
 			await extractAndSaveFindings(this.ctx.projectName, this.ctx.repoRoot, prdName);
 
-			// Update documentation when enabled
+			// Update documentation when enabled — use docs.agent if configured, else fall back to development agentConfig
 			const docsConfig = config.docs;
 			if (docsConfig?.path && docsConfig.auto_update !== false) {
 				const docsPath = join(this.ctx.repoRoot, docsConfig.path);
+				let docsAgentConfig = agentConfig;
+				if (docsConfig.agent) {
+					const dResult = getAgentConfig(config, docsConfig.agent);
+					if (dResult.ok) {
+						docsAgentConfig = dResult.data!;
+					}
+				}
 				try {
 					const { updateDocumentation } = await import("../documentation.js");
 					const runAgentFn = async (p: string, c: AgentConfig) => {
@@ -673,7 +687,7 @@ export class OrchestrationEngine {
 						this.ctx.repoRoot,
 						prdName,
 						docsPath,
-						agentConfig,
+						docsAgentConfig,
 						runAgentFn,
 					);
 					if (docResults.updated.length > 0) {

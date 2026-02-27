@@ -156,6 +156,8 @@ export interface DocsConfig {
 	path: string;
 	/** Whether to automatically update docs on PRD completion (default: true) */
 	auto_update?: boolean;
+	/** Agent name for documentation updates. Falls back to default_agent. */
+	agent?: string;
 }
 
 /**
@@ -246,6 +248,8 @@ export interface RalphConfig {
 	scripts?: ScriptsConfig;
 	/** Documentation configuration */
 	docs?: DocsConfig;
+	/** Agent name for verification generation. Falls back to default_agent. */
+	verification_agent?: string;
 	/** Review configuration */
 	review?: ReviewConfig;
 	/** Swarm configuration for parallel PRD execution */
