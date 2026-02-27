@@ -27,6 +27,7 @@ import {
 	listWorktrees,
 	hasUncommittedChanges,
 	interpolateWorktreeCmd,
+	getCurrentBranch,
 } from "./worktree.js";
 import { AgentExecutor } from "../orchestration/agent-runner.js";
 import {
@@ -113,9 +114,24 @@ export class SwarmManager {
 		const branch = prdName;
 		const worktreePath = resolveWorktreePath(prdName, this.config.worktree_parent, this.cwd);
 		let panePrefix: string;
+		let actualBranch = branch;
 
 		if (existsSync(worktreePath)) {
-			// Worktree already exists on disk — just cd into it
+			// Worktree exists on disk — verify it's on the correct branch
+			const branchResult = await getCurrentBranch(worktreePath);
+			if (!branchResult.ok) {
+				return err(
+					"WORKTREE_BRANCH_CHECK_FAILED",
+					`Path ${worktreePath} exists but could not determine its branch`,
+				);
+			}
+			actualBranch = branchResult.data!;
+			if (actualBranch !== branch) {
+				return err(
+					"WORKTREE_WRONG_BRANCH",
+					`Worktree at ${worktreePath} is on branch "${actualBranch}", expected "${branch}". Clean up the worktree or switch its branch first.`,
+				);
+			}
 			panePrefix = `cd "${worktreePath}"`;
 		} else if (this.config.worktree_create_cmd) {
 			// Custom command runs inside the pane — handles worktree creation + cd
@@ -153,7 +169,7 @@ export class SwarmManager {
 		const instance: RunInstance = {
 			prdName,
 			worktree: worktreePath,
-			branch: prdName,
+			branch: actualBranch,
 			paneId: pane.paneId,
 			startedAt: new Date().toISOString(),
 			status: "running",
