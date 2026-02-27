@@ -124,7 +124,7 @@ PRDs move through three states:
 
 1. **Start PRD** → PRD moves from `pending` to `in_progress`
 2. **All stories complete** → Findings extracted → **Code review pipeline runs** → PRD moves to `testing`, verification.md auto-generated
-3. **Tests pass (PRD_VERIFIED)** → PRD moves to `completed`, findings extracted
+3. **Tests pass (PRD_VERIFIED)** → Documentation updated → Uncommitted changes auto-committed → PRD moves to `completed`, findings extracted
 4. **Tests fail (PRD_FAILED)** → Fix story created, PRD moves back to `in_progress`
 
 ## Code Review Pipeline
@@ -372,6 +372,8 @@ panes_per_window = 4
 pane_close_timeout = 30
 # Custom worktree creation command (optional). Placeholders: {name}, {path}, {branch}
 # worktree_create_cmd = "wt switch -c {name}"
+# Agent for merge operations (default: default_agent)
+# merge_agent = "claude-opus"
 ```
 
 ## Testing Scripts

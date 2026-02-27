@@ -1292,14 +1292,15 @@ async function runSwarmLogs(flags: Record<string, unknown>, prdName?: unknown): 
 }
 
 async function runSwarmMerge(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
-	const { getAgentConfig } = await import("./lib/core/config.js");
+	const { getAgentConfig, getSwarmConfig } = await import("./lib/core/config.js");
 	const configResult = await loadConfig();
 	if (!configResult.ok) {
 		console.error(configResult.error!.message);
 		process.exit(1);
 	}
 
-	const agentName = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
+	const swarmConfig = getSwarmConfig(configResult.data!);
+	const agentName = typeof flags["agent"] === "string" ? flags["agent"] : swarmConfig.merge_agent;
 	const agentResult = getAgentConfig(configResult.data!, agentName);
 	if (!agentResult.ok) {
 		console.error(agentResult.error!.message);

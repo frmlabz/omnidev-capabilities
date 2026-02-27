@@ -89,6 +89,7 @@ interface RawSwarmConfig {
 	pane_close_timeout?: number;
 	worktree_create_cmd?: string;
 	primary_branch?: string;
+	merge_agent?: string;
 }
 
 /**
@@ -235,6 +236,9 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 		}
 		if (ralph.swarm.primary_branch) {
 			swarm.primary_branch = ralph.swarm.primary_branch;
+		}
+		if (ralph.swarm.merge_agent) {
+			swarm.merge_agent = ralph.swarm.merge_agent;
 		}
 		config.swarm = swarm;
 	}
@@ -418,14 +422,15 @@ export function resolveReviewAgents(
  */
 export function getSwarmConfig(
 	config: RalphConfig,
-): Required<Omit<SwarmConfig, "worktree_create_cmd" | "primary_branch">> &
-	Pick<SwarmConfig, "worktree_create_cmd" | "primary_branch"> {
+): Required<Omit<SwarmConfig, "worktree_create_cmd" | "primary_branch" | "merge_agent">> &
+	Pick<SwarmConfig, "worktree_create_cmd" | "primary_branch" | "merge_agent"> {
 	return {
 		worktree_parent: config.swarm?.worktree_parent ?? "..",
 		panes_per_window: config.swarm?.panes_per_window ?? 4,
 		pane_close_timeout: config.swarm?.pane_close_timeout ?? 30,
 		worktree_create_cmd: config.swarm?.worktree_create_cmd,
 		primary_branch: config.swarm?.primary_branch,
+		merge_agent: config.swarm?.merge_agent,
 	};
 }
 

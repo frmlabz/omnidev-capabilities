@@ -228,6 +228,8 @@ export interface SwarmConfig {
 	worktree_create_cmd?: string;
 	/** For bare repos: branch name of the primary linked worktree (e.g., "main"). Empty = not a bare repo layout. */
 	primary_branch?: string;
+	/** Agent name for merge operations. Falls back to default_agent. */
+	merge_agent?: string;
 }
 
 /**

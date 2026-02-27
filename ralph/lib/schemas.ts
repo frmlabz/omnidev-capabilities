@@ -130,6 +130,7 @@ export const SwarmConfigSchema = z.object({
 	pane_close_timeout: z.number().int().min(0).optional(),
 	worktree_create_cmd: z.string().min(1).optional(),
 	primary_branch: z.string().min(1).optional(),
+	merge_agent: z.string().min(1).optional(),
 });
 
 /**

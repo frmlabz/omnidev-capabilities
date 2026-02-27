@@ -711,6 +711,20 @@ export class OrchestrationEngine {
 			emit({ type: "state_change", prdName, from: oldStatus, to: "completed" });
 			emit({ type: "test_complete", result: "verified" });
 
+			// Auto-commit any uncommitted changes (docs, config, etc.)
+			try {
+				const commitAgentResult = getAgentConfig(config);
+				if (commitAgentResult.ok) {
+					const commitPrompt = `Check \`git status\`. If there are any uncommitted changes (staged or unstaged, including untracked files), stage them all and commit using the format: \`feat: [${prdName}] - completion updates\`. If there are no changes, do nothing. Do not push.\n\nWhen done, output:\n<promise>COMPLETE</promise>`;
+					log("info", "Checking for uncommitted changes...");
+					await this.ctx.agentExecutor.run(commitPrompt, commitAgentResult.data!, {
+						signal,
+					});
+				}
+			} catch (error) {
+				log("warn", `Auto-commit failed: ${error instanceof Error ? error.message : error}`);
+			}
+
 			await runTeardown();
 
 			return ok({
