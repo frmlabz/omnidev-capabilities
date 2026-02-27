@@ -23,7 +23,7 @@ import type {
 } from "../types.js";
 import type { Result } from "../results.js";
 import { ok } from "../results.js";
-import { getAgentConfig } from "../core/config.js";
+import { getAgentConfig, type ResolvedReviewAgents } from "../core/config.js";
 import {
 	generateReviewPrompt,
 	generateFixPrompt,
@@ -121,7 +121,7 @@ export class ReviewEngine {
 		prdName: string,
 		prd: PRD,
 		config: RalphConfig,
-		agentConfig: AgentConfig,
+		agents: ResolvedReviewAgents,
 		reviewConfig: Required<ReviewConfig>,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
@@ -154,7 +154,8 @@ export class ReviewEngine {
 			prdName,
 			prd,
 			reviewConfig.first_review_agents,
-			agentConfig,
+			agents.reviewAgent,
+			agents.fixAgent,
 			gitDiff,
 			false,
 			emit,
@@ -179,7 +180,7 @@ export class ReviewEngine {
 				prdName,
 				prd,
 				config,
-				agentConfig,
+				agents.fixAgent,
 				reviewConfig,
 				gitDiff,
 				emit,
@@ -213,7 +214,8 @@ export class ReviewEngine {
 			prdName,
 			prd,
 			reviewConfig.second_review_agents,
-			agentConfig,
+			agents.reviewAgent,
+			agents.fixAgent,
 			getGitDiff(), // Re-get diff after fixes
 			true, // second review — critical only
 			emit,
@@ -234,7 +236,7 @@ export class ReviewEngine {
 			log("info", "Starting Phase 4: Finalize");
 			emit({ type: "review_start", phase: "finalize" });
 
-			await this.runFinalize(prdName, prd, agentConfig, reviewConfig, emit, signal);
+			await this.runFinalize(prdName, prd, agents.finalizeAgent, reviewConfig, emit, signal);
 
 			emit({ type: "review_phase_complete", phase: "finalize", clean: true });
 			log("info", "Phase 4 complete");
@@ -250,7 +252,8 @@ export class ReviewEngine {
 		prdName: string,
 		prd: PRD,
 		reviewTypes: string[],
-		agentConfig: AgentConfig,
+		reviewAgentConfig: AgentConfig,
+		fixAgentConfig: AgentConfig,
 		gitDiff: string,
 		isSecondReview: boolean,
 		emit: (event: EngineEvent) => void,
@@ -274,7 +277,7 @@ export class ReviewEngine {
 						gitDiff,
 						isSecondReview,
 					);
-					const result = await this.ctx.agentExecutor.run(prompt, agentConfig, {
+					const result = await this.ctx.agentExecutor.run(prompt, reviewAgentConfig, {
 						stream: true,
 						signal,
 						onOutput: (data) => emit({ type: "agent_output", data }),
@@ -330,7 +333,7 @@ export class ReviewEngine {
 				iteration: fixIteration + 1,
 				findingsCount: criticalOrMajor.length,
 			});
-			await this.runFixAgent(prdName, prd, criticalOrMajor, agentConfig, emit, signal);
+			await this.runFixAgent(prdName, prd, criticalOrMajor, fixAgentConfig, emit, signal);
 
 			// Re-get diff for next review iteration
 			gitDiff = getGitDiff();
@@ -370,7 +373,7 @@ export class ReviewEngine {
 		prdName: string,
 		prd: PRD,
 		config: RalphConfig,
-		defaultAgentConfig: AgentConfig,
+		fixAgentConfig: AgentConfig,
 		reviewConfig: Required<ReviewConfig>,
 		gitDiff: string,
 		emit: (event: EngineEvent) => void,
@@ -378,9 +381,7 @@ export class ReviewEngine {
 	): Promise<{ results: ReviewRoundResult[]; fixIterations: number; clean: boolean } | null> {
 		// Look up the external tool agent config
 		const externalAgentResult = getAgentConfig(config, reviewConfig.review_agent);
-		const externalAgentConfig = externalAgentResult.ok
-			? externalAgentResult.data!
-			: defaultAgentConfig;
+		const externalAgentConfig = externalAgentResult.ok ? externalAgentResult.data! : fixAgentConfig;
 
 		if (!externalAgentResult.ok) {
 			this.ctx.logger.log(
@@ -413,7 +414,7 @@ export class ReviewEngine {
 
 			if (criticalOrMajor.length > 0) {
 				emit({ type: "review_fix_start", iteration: 1, findingsCount: criticalOrMajor.length });
-				await this.runFixAgent(prdName, prd, criticalOrMajor, defaultAgentConfig, emit, signal);
+				await this.runFixAgent(prdName, prd, criticalOrMajor, fixAgentConfig, emit, signal);
 				return { results: [parsed], fixIterations: 1, clean: false };
 			}
 

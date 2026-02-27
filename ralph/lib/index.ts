@@ -113,6 +113,8 @@ export {
 	getScriptsConfig,
 	getReviewConfig,
 	getSwarmConfig,
+	resolveReviewAgents,
+	type ResolvedReviewAgents,
 } from "./core/config.js";
 
 // Core - Logger

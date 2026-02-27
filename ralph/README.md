@@ -179,7 +179,16 @@ When reviewers find CRITICAL or MAJOR issues, a fix agent is spawned to resolve 
 # Enable/disable the review pipeline (default: true)
 enabled = true
 
-# Review agent name from [ralph.agents.*] (default: "" — disabled)
+# Agent for internal review prompts — quality, implementation, etc. (default: "" — uses default_agent)
+agent = "claude-opus"
+
+# Agent for fixing review findings (default: "" — falls back to review.agent → default_agent)
+fix_agent = "claude"
+
+# Agent for the finalize step (default: "" — falls back to review.agent → default_agent)
+finalize_agent = "claude"
+
+# Agent name from [ralph.agents.*] for external review tool, e.g. codex (default: "" — disabled)
 review_agent = "codex"
 
 # Enable finalize step after review (default: false)
@@ -197,6 +206,17 @@ second_review_agents = ["quality", "implementation"]
 # Max fix iterations per review phase (default: 3)
 max_fix_iterations = 3
 ```
+
+**Fallback chains:**
+
+| Phase | Resolution |
+|-------|-----------|
+| Internal review | `review.agent` → `default_agent` |
+| Fix | `review.fix_agent` → `review.agent` → `default_agent` |
+| Finalize | `review.finalize_agent` → `review.agent` → `default_agent` |
+| External review | `review.review_agent` (looked up in `[ralph.agents.*]`) |
+
+Development, verification, testing, and docs always use `default_agent` (or `--agent` CLI flag).
 
 ### External Review
 

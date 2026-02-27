@@ -18,6 +18,7 @@ import {
 	getScriptsConfig,
 	getTestingConfig,
 	getReviewConfig,
+	resolveReviewAgents,
 } from "../core/config.js";
 import { type Logger, getLogger } from "../core/logger.js";
 import { type AgentExecutor, getAgentExecutor } from "./agent-runner.js";
@@ -400,24 +401,33 @@ export class OrchestrationEngine {
 		if (configResult.ok) {
 			const reviewConfig = getReviewConfig(configResult.data!);
 			if (reviewConfig.enabled) {
-				const reviewEngine = new ReviewEngine(this.ctx);
-				const prdResult = await this.ctx.store.get(prdName);
-				const prd = prdResult.ok ? prdResult.data! : _prd;
-				const result = await reviewEngine.runReview(
-					prdName,
-					prd,
-					configResult.data!,
-					agentConfig,
-					reviewConfig,
-					emit,
-					signal,
-				);
-				if (!result.ok) {
+				const agentsResult = resolveReviewAgents(configResult.data!, reviewConfig);
+				if (!agentsResult.ok) {
 					emit({
 						type: "log",
 						level: "warn",
-						message: `Review had errors: ${result.error?.message}`,
+						message: `Failed to resolve review agents: ${agentsResult.error?.message}`,
 					});
+				} else {
+					const reviewEngine = new ReviewEngine(this.ctx);
+					const prdResult = await this.ctx.store.get(prdName);
+					const prd = prdResult.ok ? prdResult.data! : _prd;
+					const result = await reviewEngine.runReview(
+						prdName,
+						prd,
+						configResult.data!,
+						agentsResult.data!,
+						reviewConfig,
+						emit,
+						signal,
+					);
+					if (!result.ok) {
+						emit({
+							type: "log",
+							level: "warn",
+							message: `Review had errors: ${result.error?.message}`,
+						});
+					}
 				}
 			}
 		}
@@ -648,9 +658,10 @@ export class OrchestrationEngine {
 			log("info", "PRD_VERIFIED - moving to completed");
 			await extractAndSaveFindings(this.ctx.projectName, this.ctx.repoRoot, prdName);
 
-			// Update documentation if configured
-			if (config.docs?.path && config.docs.auto_update !== false) {
-				const docsPath = join(process.cwd(), config.docs.path);
+			// Update documentation when enabled
+			const docsConfig = config.docs;
+			if (docsConfig?.path && docsConfig.auto_update !== false) {
+				const docsPath = join(this.ctx.repoRoot, docsConfig.path);
 				try {
 					const { updateDocumentation } = await import("../documentation.js");
 					const runAgentFn = async (p: string, c: AgentConfig) => {
@@ -667,6 +678,11 @@ export class OrchestrationEngine {
 					);
 					if (docResults.updated.length > 0) {
 						log("info", `Documentation updated: ${docResults.updated.join(", ")}`);
+					} else if (docResults.skipped.length > 0 || docResults.errors.length > 0) {
+						log(
+							"warn",
+							`Documentation not applied. Skipped: ${docResults.skipped.length}, Errors: ${docResults.errors.length}`,
+						);
 					}
 				} catch (error) {
 					log(
@@ -697,8 +713,8 @@ export class OrchestrationEngine {
 			await this.ctx.store.addFixStory(prdName, issues, testResultsRelPath);
 
 			const oldStatus = this.ctx.store.findLocation(prdName) ?? "testing";
-			await this.ctx.store.transition(prdName, "pending");
-			emit({ type: "state_change", prdName, from: oldStatus, to: "pending" });
+			await this.ctx.store.transition(prdName, "in_progress");
+			emit({ type: "state_change", prdName, from: oldStatus, to: "in_progress" });
 			emit({ type: "test_complete", result: "failed", issues });
 
 			await runTeardown();

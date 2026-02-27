@@ -109,6 +109,9 @@ export const DocsConfigSchema = z.object({
  */
 export const ReviewConfigSchema = z.object({
 	enabled: z.boolean().optional(),
+	agent: z.string().optional(),
+	fix_agent: z.string().optional(),
+	finalize_agent: z.string().optional(),
 	review_agent: z.string().optional(),
 	finalize_enabled: z.boolean().optional(),
 	finalize_prompt: z.string().optional(),

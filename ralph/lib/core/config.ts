@@ -70,6 +70,9 @@ interface RawDocsConfig {
 
 interface RawReviewConfig {
 	enabled?: boolean;
+	agent?: string;
+	fix_agent?: string;
+	finalize_agent?: string;
 	review_agent?: string;
 	finalize_enabled?: boolean;
 	finalize_prompt?: string;
@@ -162,22 +165,29 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 		config.scripts = scripts;
 	}
 
-	// Docs config
-	if (ralph.docs?.path) {
-		const docs: DocsConfig = {
-			path: ralph.docs.path,
-		};
-		if (ralph.docs.auto_update !== undefined) {
-			docs.auto_update = ralph.docs.auto_update;
-		}
-		config.docs = docs;
+	// Docs config — default to "docs" so doc updates work without explicit config
+	const docs: DocsConfig = {
+		path: ralph.docs?.path ?? "docs",
+	};
+	if (ralph.docs?.auto_update !== undefined) {
+		docs.auto_update = ralph.docs.auto_update;
 	}
+	config.docs = docs;
 
 	// Review config
 	if (ralph.review) {
 		const review: ReviewConfig = {};
 		if (ralph.review.enabled !== undefined) {
 			review.enabled = ralph.review.enabled;
+		}
+		if (ralph.review.agent) {
+			review.agent = ralph.review.agent;
+		}
+		if (ralph.review.fix_agent) {
+			review.fix_agent = ralph.review.fix_agent;
+		}
+		if (ralph.review.finalize_agent) {
+			review.finalize_agent = ralph.review.finalize_agent;
 		}
 		if (ralph.review.review_agent) {
 			review.review_agent = ralph.review.review_agent;
@@ -327,6 +337,9 @@ const DEFAULT_SECOND_REVIEW_AGENTS = ["quality", "implementation"];
 export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 	return {
 		enabled: config.review?.enabled ?? true,
+		agent: config.review?.agent ?? "",
+		fix_agent: config.review?.fix_agent ?? "",
+		finalize_agent: config.review?.finalize_agent ?? "",
 		review_agent: config.review?.review_agent ?? "",
 		finalize_enabled: config.review?.finalize_enabled ?? false,
 		finalize_prompt: config.review?.finalize_prompt ?? "",
@@ -334,6 +347,62 @@ export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 		second_review_agents: config.review?.second_review_agents ?? DEFAULT_SECOND_REVIEW_AGENTS,
 		max_fix_iterations: config.review?.max_fix_iterations ?? 3,
 	};
+}
+
+/**
+ * Resolved agent configs for each review pipeline phase
+ */
+export interface ResolvedReviewAgents {
+	reviewAgent: AgentConfig;
+	fixAgent: AgentConfig;
+	finalizeAgent: AgentConfig;
+}
+
+/**
+ * Resolve per-phase agent configs for the review pipeline.
+ *
+ * Fallback chains:
+ * - review:      review.agent → default_agent
+ * - fix:         review.fix_agent → review.agent → default_agent
+ * - finalize:    review.finalize_agent → review.agent → default_agent
+ */
+export function resolveReviewAgents(
+	config: RalphConfig,
+	reviewConfig: Required<ReviewConfig>,
+): Result<ResolvedReviewAgents> {
+	const resolve = (name: string): Result<AgentConfig> => {
+		if (name) {
+			return getAgentConfig(config, name);
+		}
+		return getAgentConfig(config);
+	};
+
+	// review.agent → default_agent
+	const reviewAgentName = reviewConfig.agent || "";
+	const reviewAgentResult = resolve(reviewAgentName);
+	if (!reviewAgentResult.ok) {
+		return err(reviewAgentResult.error!.code, reviewAgentResult.error!.message);
+	}
+
+	// review.fix_agent → review.agent → default_agent
+	const fixAgentName = reviewConfig.fix_agent || reviewConfig.agent || "";
+	const fixAgentResult = resolve(fixAgentName);
+	if (!fixAgentResult.ok) {
+		return err(fixAgentResult.error!.code, fixAgentResult.error!.message);
+	}
+
+	// review.finalize_agent → review.agent → default_agent
+	const finalizeAgentName = reviewConfig.finalize_agent || reviewConfig.agent || "";
+	const finalizeAgentResult = resolve(finalizeAgentName);
+	if (!finalizeAgentResult.ok) {
+		return err(finalizeAgentResult.error!.code, finalizeAgentResult.error!.message);
+	}
+
+	return ok({
+		reviewAgent: reviewAgentResult.data!,
+		fixAgent: fixAgentResult.data!,
+		finalizeAgent: finalizeAgentResult.data!,
+	});
 }
 
 /**

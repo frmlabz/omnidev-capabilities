@@ -164,6 +164,12 @@ export interface DocsConfig {
 export interface ReviewConfig {
 	/** Whether review is enabled (default: true) */
 	enabled?: boolean;
+	/** Agent name for internal review prompts (quality, implementation, etc.). Falls back to default_agent. */
+	agent?: string;
+	/** Agent name for fixing review findings. Falls back to review.agent → default_agent. */
+	fix_agent?: string;
+	/** Agent name for the finalize step. Falls back to review.agent → default_agent. */
+	finalize_agent?: string;
 	/** Review agent name from [ralph.agents.*] for external review, or "" to disable (default: "") */
 	review_agent?: string;
 	/** Whether the finalize step is enabled (default: false) */
