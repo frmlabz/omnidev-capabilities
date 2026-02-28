@@ -40,9 +40,7 @@ function getGitDiff(): string {
 		// Get diff of all changes on current branch vs merge-base with main
 		const mergeBase = execSync(
 			"git merge-base HEAD main 2>/dev/null || git rev-parse HEAD~10 2>/dev/null || echo HEAD",
-			{
-				encoding: "utf-8",
-			},
+			{ encoding: "utf-8" },
 		).trim();
 		return execSync(`git diff ${mergeBase} HEAD`, {
 			encoding: "utf-8",

@@ -4,6 +4,7 @@
 
 import assert from "node:assert";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, it } from "node:test";
@@ -17,7 +18,7 @@ import {
 import type { PRD } from "./lib/types.js";
 
 const PROJECT_NAME = "test";
-const REPO_ROOT = "/test-repo";
+let REPO_ROOT = "";
 let testDir: string;
 let originalXdg: string | undefined;
 let originalCwd: string;
@@ -70,13 +71,16 @@ async function createTestPRD(
 
 beforeEach(() => {
 	testDir = join(
-		process.cwd(),
-		".test-ralph-orchestrator",
+		"/tmp",
+		"ralph-test",
 		`test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
 	);
 	mkdirSync(testDir, { recursive: true });
 	originalCwd = process.cwd();
 	process.chdir(testDir);
+	execSync("git init -q", { cwd: testDir });
+	execSync("git commit --allow-empty -m init -q", { cwd: testDir });
+	REPO_ROOT = testDir;
 	originalXdg = process.env["XDG_STATE_HOME"];
 	process.env["XDG_STATE_HOME"] = testDir;
 	ensureDirectories(PROJECT_NAME, REPO_ROOT);

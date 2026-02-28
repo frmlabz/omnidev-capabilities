@@ -6,7 +6,8 @@
  */
 
 import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
+import { resolve } from "node:path";
 import { join } from "node:path";
 import type { PRD, AgentConfig, TestReport, RalphConfig } from "../types.js";
 import type { Result } from "../results.js";
@@ -135,6 +136,40 @@ export class OrchestrationEngine {
 	}
 
 	/**
+	 * Validate the working directory is a real git repo and resolve the actual branch.
+	 * Returns an error if repoRoot is not a valid git working tree.
+	 */
+	private validateWorkingDirectory(
+		prdName: string,
+		log: (level: "info" | "warn" | "error", message: string) => void,
+	): Result<void> {
+		const cwd = this.ctx.repoRoot;
+
+		let gitRoot: string;
+		let branch: string;
+		try {
+			gitRoot = execSync("git rev-parse --show-toplevel", { encoding: "utf-8", cwd }).trim();
+			branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd }).trim();
+		} catch {
+			return err("CWD_INVALID", `Working directory "${cwd}" is not a valid git repository`);
+		}
+
+		const resolvedCwd = resolve(cwd);
+		const resolvedGitRoot = resolve(gitRoot);
+
+		if (resolvedCwd !== resolvedGitRoot) {
+			return err(
+				"CWD_MISMATCH",
+				`repoRoot "${cwd}" resolves to a different git root: "${gitRoot}"`,
+			);
+		}
+
+		log("info", `PRD: ${prdName} | Branch: ${branch} | Dir: ${cwd}`);
+
+		return ok(undefined);
+	}
+
+	/**
 	 * Run development orchestration for a PRD
 	 */
 	async runDevelopment(
@@ -163,7 +198,11 @@ export class OrchestrationEngine {
 		const agentConfig = agentConfigResult.data!;
 		const maxIterations = config.default_iterations;
 
-		log("info", `Starting orchestration for PRD: ${prdName}`);
+		log("info", `Starting orchestration for PRD: ${prdName} (cwd: ${process.cwd()})`);
+		const cwdCheck = this.validateWorkingDirectory(prdName, log);
+		if (!cwdCheck.ok) {
+			return err(cwdCheck.error!.code, cwdCheck.error!.message);
+		}
 		log(
 			"info",
 			`Using agent: ${options.agent ?? config.default_agent}, max iterations: ${maxIterations}`,
@@ -280,7 +319,10 @@ export class OrchestrationEngine {
 			});
 			emit({ type: "story_update", prdName, storyId: story.id, status: "in_progress" });
 
-			log("info", `Working on: ${story.id} - ${story.title} (iteration ${iterationCount})`);
+			log(
+				"info",
+				`Working on: ${story.id} - ${story.title} (iteration ${iterationCount}, cwd: ${process.cwd()})`,
+			);
 
 			// Generate and run
 			const prompt = await generatePrompt(
@@ -543,7 +585,14 @@ export class OrchestrationEngine {
 			this.ctx.store.clearTestResults(prdName);
 		}
 
-		log("info", `Starting ${isFocusedRetest ? "focused retest" : "testing"} for PRD: ${prdName}`);
+		log(
+			"info",
+			`Starting ${isFocusedRetest ? "focused retest" : "testing"} for PRD: ${prdName} (cwd: ${process.cwd()})`,
+		);
+		const cwdCheck = this.validateWorkingDirectory(prdName, log);
+		if (!cwdCheck.ok) {
+			return err(cwdCheck.error!.code, cwdCheck.error!.message);
+		}
 
 		// Run scripts
 		const scripts = getScriptsConfig(config);
@@ -637,7 +686,7 @@ export class OrchestrationEngine {
 				)
 			: await generateTestPrompt(this.ctx.projectName, this.ctx.repoRoot, prdName, config);
 
-		log("info", "Spawning test agent...");
+		log("info", `Spawning test agent... (cwd: ${process.cwd()})`);
 		const result = await this.ctx.agentExecutor.run(prompt, agentConfig, {
 			stream: true,
 			signal,
