@@ -84,16 +84,18 @@ Each swarm session runs in an isolated git worktree, so multiple PRDs can be dev
 
 ### Custom Worktree Creation
 
-By default, swarm uses `git worktree add` programmatically. If you have a custom tool that creates worktrees (e.g., one that also installs deps and CDs the shell), configure it:
+By default, swarm uses `git worktree add` programmatically. If you have a custom tool that creates worktrees (e.g., with extra hooks), configure it:
 
 ```toml
 [ralph.swarm]
-worktree_create_cmd = "wt switch -c {name}"
+worktree_create_cmd = "wt switch --create --no-cd --yes {name}"
 ```
 
 Available placeholders: `{name}` (PRD name), `{path}` (resolved worktree path), `{branch}` (branch name).
 
-When set, the custom command runs inside the tmux pane as a prefix to the agent command instead of the default `git worktree add` + `cd`.
+When set, the custom command runs inside the tmux pane as a prefix to the agent command instead of the default `git worktree add`.
+Ralph always `cd`s into `{path}` and verifies the expected branch before starting, so custom tools do not need to manage shell directory switching.
+If the command starts with `wt`, Ralph also sets `WORKTRUNK_SKIP_SHELL_INTEGRATION_PROMPT=true` to avoid interactive shell-install prompts in tmux panes.
 
 ## PRD Lifecycle
 
@@ -371,7 +373,7 @@ panes_per_window = 4
 # Seconds before auto-closing a completed pane (default: 30)
 pane_close_timeout = 30
 # Custom worktree creation command (optional). Placeholders: {name}, {path}, {branch}
-# worktree_create_cmd = "wt switch -c {name}"
+# worktree_create_cmd = "wt switch --create --no-cd --yes {name}"
 # Agent for merge operations (default: default_agent)
 # merge_agent = "claude-opus"
 ```

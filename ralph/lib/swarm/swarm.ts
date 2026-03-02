@@ -135,11 +135,12 @@ export class SwarmManager {
 			panePrefix = `cd "${worktreePath}"`;
 		} else if (this.config.worktree_create_cmd) {
 			// Custom command runs inside the pane — handles worktree creation + cd
-			panePrefix = interpolateWorktreeCmd(this.config.worktree_create_cmd, {
+			const customCmd = interpolateWorktreeCmd(this.config.worktree_create_cmd, {
 				name: prdName,
 				path: worktreePath,
 				branch,
 			});
+			panePrefix = withWorktrunkPromptSuppressed(customCmd);
 		} else {
 			// Default: programmatic git worktree add, then cd
 			const wtResult = await createWorktree(prdName, this.config.worktree_parent, this.cwd);
@@ -152,9 +153,10 @@ export class SwarmManager {
 		if (!sessionResult.ok) return err(sessionResult.error!.code, sessionResult.error!.message);
 
 		// Build the orchestration command
-		const agentFlag = options?.agent ? ` --agent ${options.agent}` : "";
+		const agentFlag = options?.agent ? ` --agent ${shellEscape(options.agent)}` : "";
 		const timeout = this.config.pane_close_timeout;
-		const command = `${panePrefix} && omnidev ralph start ${prdName}${agentFlag}; echo "[finished]"; read -t ${timeout} || true`;
+		const guard = buildWorktreeGuard(worktreePath, actualBranch);
+		const command = `${panePrefix} && cd ${shellEscape(worktreePath)} && (${guard}) && omnidev ralph start ${shellEscape(prdName)}${agentFlag}; echo "[finished]"; read -t ${timeout} || true`;
 
 		// Create pane
 		const paneResult = await this.session.createPane(this.sessionName, {
@@ -240,9 +242,10 @@ export class SwarmManager {
 		if (!sessionResult.ok) return err(sessionResult.error!.code, sessionResult.error!.message);
 
 		// Build test command
-		const agentFlag = options?.agent ? ` --agent ${options.agent}` : "";
+		const agentFlag = options?.agent ? ` --agent ${shellEscape(options.agent)}` : "";
 		const timeout = this.config.pane_close_timeout;
-		const command = `cd "${run.worktree}" && omnidev ralph test ${prdName}${agentFlag}; echo "[finished]"; read -t ${timeout} || true`;
+		const guard = buildWorktreeGuard(run.worktree, run.branch);
+		const command = `cd ${shellEscape(run.worktree)} && (${guard}) && omnidev ralph test ${shellEscape(prdName)}${agentFlag}; echo "[finished]"; read -t ${timeout} || true`;
 
 		// Create pane for testing
 		const paneResult = await this.session.createPane(this.sessionName, {
@@ -583,6 +586,29 @@ export class SwarmManager {
 
 		return ok(undefined);
 	}
+}
+
+function shellEscape(value: string): string {
+	return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function withWorktrunkPromptSuppressed(command: string): string {
+	const trimmed = command.trimStart();
+	if (trimmed === "wt" || trimmed.startsWith("wt ")) {
+		return `WORKTRUNK_SKIP_SHELL_INTEGRATION_PROMPT=true ${command}`;
+	}
+	return command;
+}
+
+function buildWorktreeGuard(expectedWorktreePath: string, expectedBranch: string): string {
+	return [
+		`expected_path=$(cd ${shellEscape(expectedWorktreePath)} && pwd -P)`,
+		"actual_path=$(pwd -P)",
+		`expected_branch=${shellEscape(expectedBranch)}`,
+		'if [ "$actual_path" != "$expected_path" ]; then echo "[ralph] ERROR: expected worktree path $expected_path, got $actual_path"; exit 1; fi',
+		'current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(unknown)")',
+		'if [ "$current_branch" != "$expected_branch" ]; then echo "[ralph] ERROR: expected branch $expected_branch, got $current_branch"; exit 1; fi',
+	].join("; ");
 }
 
 /**
