@@ -416,6 +416,9 @@ export class PRDStore {
 			};
 
 			prd.stories.push(newStory);
+			// Mark this PRD as coming from a testing failure so the next development-complete run
+			// skips full review and goes directly to focused verification/testing.
+			prd.testsCaughtIssue = true;
 			return prd;
 		});
 

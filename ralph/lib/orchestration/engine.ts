@@ -442,7 +442,20 @@ export class OrchestrationEngine {
 		const configResult = await loadConfig();
 		if (configResult.ok) {
 			const reviewConfig = getReviewConfig(configResult.data!);
-			if (reviewConfig.enabled) {
+			const latestPrdResult = await this.ctx.store.get(prdName);
+			const latestPrd = latestPrdResult.ok ? latestPrdResult.data! : _prd;
+			// Skip the full review pipeline when this PRD is in a post-failure fix cycle.
+			const shouldRunReview = latestPrd.testsCaughtIssue !== true;
+
+			if (!shouldRunReview) {
+				emit({
+					type: "log",
+					level: "info",
+					message: "Skipping full review pipeline because this PRD is in post-failure fix mode.",
+				});
+			}
+
+			if (reviewConfig.enabled && shouldRunReview) {
 				const agentsResult = resolveReviewAgents(configResult.data!, reviewConfig);
 				if (!agentsResult.ok) {
 					emit({
@@ -452,8 +465,7 @@ export class OrchestrationEngine {
 					});
 				} else {
 					const reviewEngine = new ReviewEngine(this.ctx);
-					const prdResult = await this.ctx.store.get(prdName);
-					const prd = prdResult.ok ? prdResult.data! : _prd;
+					const prd = latestPrd;
 					const result = await reviewEngine.runReview(
 						prdName,
 						prd,

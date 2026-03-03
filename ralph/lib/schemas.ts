@@ -62,6 +62,7 @@ export const PRDSchema = z.object({
 	completedAt: z.string().datetime().optional(),
 	stories: z.array(StorySchema).min(1),
 	dependencies: z.array(z.string()).optional(),
+	testsCaughtIssue: z.boolean().optional(),
 	lastRun: LastRunSchema.optional(),
 	metrics: PRDMetricsSchema.optional(),
 });

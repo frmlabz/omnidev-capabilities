@@ -86,6 +86,11 @@ export interface PRD {
 	stories: Story[];
 	/** PRD names that must be completed before this one can start */
 	dependencies?: string[];
+	/**
+	 * True when testing has already failed for this PRD and the next completion
+	 * should skip the full review pipeline for focused test-fix work.
+	 */
+	testsCaughtIssue?: boolean;
 	/** Last run information (set on Ctrl+C or completion) */
 	lastRun?: LastRun;
 	/** Tracked metrics */

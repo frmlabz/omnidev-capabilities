@@ -125,13 +125,15 @@ PRDs move through three states:
 ### Automatic Transitions
 
 1. **Start PRD** → PRD moves from `pending` to `in_progress`
-2. **All stories complete** → Findings extracted → **Code review pipeline runs** → PRD moves to `testing`, verification.md auto-generated
+2. **All stories complete** → Findings extracted → **Code review pipeline runs** (unless the PRD came back from testing after a failure) → PRD moves to `testing`, verification.md auto-generated
 3. **Tests pass (PRD_VERIFIED)** → Documentation updated → Uncommitted changes auto-committed → PRD moves to `completed`, findings extracted
 4. **Tests fail (PRD_FAILED)** → Fix story created, PRD moves back to `in_progress`
 
 ## Code Review Pipeline
 
 When all stories are completed, Ralph runs a multi-phase code review pipeline before transitioning to testing. This catches bugs, security issues, and over-engineering early — before they reach QA.
+
+If a PRD returned from testing with failures, the PRD is marked so the next development-complete step skips this full review pipeline for a focused fix cycle.
 
 ### Phases
 
@@ -257,6 +259,18 @@ enabled = false
 
 When disabled, Ralph goes straight from development completion to testing (the original behavior).
 
+### Review skip behavior for fix cycles
+
+When a PRD fails tests (`PRD_FAILED`) and moves back to `in_progress`, Ralph creates a fix story and updates `prd.json` with:
+
+```json
+{
+  "testsCaughtIssue": true
+}
+```
+
+That flag tells Ralph to skip the full review pipeline on the next "all stories complete" transition.
+
 ## Testing Workflow
 
 When all stories are completed, Ralph automatically:
@@ -306,6 +320,8 @@ The test agent outputs one of these signals:
 ```
 
 → Fix story created (FIX-001, FIX-002, etc.), PRD moves back to `in_progress`
+
+That also sets `testsCaughtIssue: true` so the next completion goes directly into testing after implementation.
 
 ## Configuration
 
