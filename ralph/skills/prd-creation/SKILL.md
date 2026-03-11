@@ -72,6 +72,7 @@ With codebase and domain knowledge in hand, conduct an in-depth interview using 
 - **Edge cases**: Failure modes, race conditions, concurrent access, resource limits
 - **Security**: Authentication, authorization, input validation, data exposure
 - **Testing**: What needs to be tested, acceptance criteria, how to verify correctness
+- **Documentation**: Which files under `docs/**/*.md` may need updates, what workflows or APIs must be documented, and whether a dedicated documentation story is needed
 - **Tradeoffs**: Speed vs. quality, simplicity vs. flexibility, consistency vs. innovation
 
 Use the AskUserQuestion tool to present options, gather preferences, and validate your understanding. Keep interviewing until you have enough detail to write a comprehensive spec that an implementer could follow without further clarification.
@@ -113,12 +114,19 @@ Brief description of the feature and its purpose.
 - What happens when X?
 - How to handle Y?
 
+## Documentation Impact
+
+- Docs that may need updates under `docs/**/*.md`
+- Commands, config, API contracts, or workflows that must be documented
+- Whether the PRD should end with a dedicated documentation update step
+
 ## Acceptance Criteria
 
 The feature is complete when:
 
 - [ ] Criterion 1
 - [ ] Criterion 2
+- [ ] All required documentation updates under `docs/**/*.md` are complete
 - [ ] All tests pass
 - [ ] No type errors
 ```
@@ -219,6 +227,12 @@ Now that the spec is confirmed, break down the work into stories:
 - `status`: "pending" | "in_progress" | "completed" | "blocked"
 - `priority`: 1-10 (lower = higher priority, do first)
 - `questions`: Array of questions when blocked (empty initially)
+
+**Documentation expectations for story creation:**
+
+- During story breakdown, explicitly evaluate whether the PRD changes behavior, APIs, configuration, commands, or developer workflows
+- If yes, add a final story dedicated to updating the affected files under `docs/**/*.md`
+- The final story should capture which docs need to change and what must be verified
 
 ### Dependencies
 

@@ -261,3 +261,29 @@ it("includes other stories for context", async () => {
 
 	assert.ok(prompt.includes("US-001: First Story [completed]"));
 });
+
+it("includes documentation requirements in the implementation prompt", async () => {
+	const prd: PRD = {
+		name: "docs-required",
+		description: "Test",
+		createdAt: "2026-01-09T00:00:00Z",
+		stories: [],
+	};
+
+	const story: Story = {
+		id: "US-006",
+		title: "Documented Story",
+		acceptanceCriteria: ["Docs stay up to date"],
+		status: "pending",
+		priority: 1,
+		questions: [],
+	};
+
+	await createTestPRD("docs-required", prd);
+
+	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "docs-required");
+
+	assert.ok(prompt.includes("docs/**/*.md"));
+	assert.ok(prompt.includes("Documentation updates:"));
+	assert.ok(prompt.includes("Documentation is required work"));
+});

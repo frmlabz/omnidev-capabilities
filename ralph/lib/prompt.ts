@@ -8,6 +8,8 @@ import { findPRDLocation, getProgress, getPRD, getSpec } from "./state.js";
 import { getStatusDir } from "./core/paths.js";
 import type { PRD, Story } from "./types.js";
 
+const DEFAULT_DOCS_GLOB = "docs/**/*.md";
+
 /**
  * Extract codebase patterns from progress content
  */
@@ -123,11 +125,13 @@ Read these files before writing any code:
 cat ${prdDir}/prd.json
 cat ${prdDir}/spec.md
 cat ${prdDir}/progress.txt
+rg --files docs -g '*.md'
 \`\`\`
 
 - **spec.md** has the feature requirements
 - **progress.txt** has patterns discovered in previous iterations
 - **lastRun** field in prd.json shows where the previous run stopped
+- **${DEFAULT_DOCS_GLOB}** should be checked whenever behavior, APIs, UI, configuration, or workflows changed
 
 ### 2. Pick Next Story
 
@@ -140,6 +144,8 @@ cat ${prdDir}/progress.txt
 - Before writing new code, check how similar modules are structured in the codebase (export patterns, manifest files, config conventions) and follow the same pattern
 - Implement only what's needed for this story
 - Follow patterns from progress.txt
+- Treat documentation as part of the deliverable, not post-hoc cleanup
+- If this story changes user-facing behavior, developer workflows, configuration, or APIs, update the affected files under **${DEFAULT_DOCS_GLOB}**
 
 ### 4. Run Quality Checks
 
@@ -150,14 +156,21 @@ npm test           # Run tests
 
 Fix any issues before proceeding.
 
-### 5. Commit Changes
+### 5. Check Documentation Impact
+
+- Review the docs under **${DEFAULT_DOCS_GLOB}** before you mark the story done
+- Update the relevant docs if the implementation changed behavior, config, commands, APIs, or workflows
+- If no doc update is needed, confirm that explicitly in progress.txt with a short reason
+- If this is the final story in the PRD, do not signal \`COMPLETE\` until the documentation check is done
+
+### 6. Commit Changes
 
 \`\`\`bash
 git add .
 git commit -m "feat: [${story.id}] - ${story.title}"
 \`\`\`
 
-### 6. Update PRD
+### 7. Update PRD
 
 Update the story status in the PRD file. The PRD file tracks iteration state — if you skip this, the next iteration will re-run this story.
 
@@ -177,7 +190,7 @@ The story object should look like:
 }
 \`\`\`
 
-### 7. Append Progress
+### 8. Append Progress
 
 Add an entry to progress.txt:
 
@@ -191,6 +204,10 @@ Add an entry to progress.txt:
 - file1.ts
 - file2.ts
 
+**Documentation updates:**
+- docs/file.md - what changed
+- Or: No documentation update required because ...
+
 **Patterns discovered:**
 - Pattern or approach that worked well
 
@@ -202,7 +219,7 @@ Add an entry to progress.txt:
 
 If you made a mistake during implementation and corrected it, document it in "Mistakes corrected". These learnings prevent the same mistakes in future iterations.
 
-### 8. Check for Completion
+### 9. Check for Completion
 
 If ALL stories have \`status: "completed"\`, reply with:
 \`\`\`
@@ -217,6 +234,7 @@ Otherwise, end your response normally. Ralph will spawn the next iteration.
 - **One story per iteration** — implementing multiple stories makes progress tracking unreliable and rollbacks impossible
 - **Read progress.txt before coding** — it contains patterns and corrections from earlier iterations that prevent repeated mistakes
 - **Keep checks green** — committing with failing tests or lint errors blocks the next iteration
+- **Documentation is required work** — if the change affects behavior or developer workflows, update **${DEFAULT_DOCS_GLOB}** before finishing
 - **No type escape hatches** (\`any\`, \`as unknown\`) — these hide real type errors that surface as runtime bugs later
 - **Work on current branch only** — the user manages branches/worktrees externally
 </Constraints>

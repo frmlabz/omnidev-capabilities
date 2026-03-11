@@ -125,9 +125,15 @@ PRDs move through three states:
 ### Automatic Transitions
 
 1. **Start PRD** → PRD moves from `pending` to `in_progress`
-2. **All stories complete** → Findings extracted → **Code review pipeline runs** (unless the PRD came back from testing after a failure) → PRD moves to `testing`, verification.md auto-generated
-3. **Tests pass (PRD_VERIFIED)** → Documentation updated → Uncommitted changes auto-committed → PRD moves to `completed`, findings extracted
+2. **All stories complete** → Findings extracted → **Code review pipeline runs** (unless the PRD came back from testing after a failure) → PRD moves to `testing`, verification.md auto-generated with documentation checks
+3. **Tests pass (PRD_VERIFIED)** → Final documentation safety-net runs → Uncommitted changes auto-committed → PRD moves to `completed`, findings extracted
 4. **Tests fail (PRD_FAILED)** → Fix story created, PRD moves back to `in_progress`
+
+## Documentation Is Part Of Done
+
+Documentation is not just a cleanup step at the end. When a PRD changes behavior, APIs, commands, configuration, UI flows, or developer workflows, Ralph expects the relevant files under `docs/**/*.md` to be updated as part of implementation.
+
+New PRDs should explicitly assess documentation impact and usually include a final documentation story when docs are affected. Verification and testing should also check that required docs were updated before a PRD can be considered verified.
 
 ## Code Review Pipeline
 
@@ -275,7 +281,7 @@ That flag tells Ralph to skip the full review pipeline on the next "all stories 
 
 When all stories are completed, Ralph automatically:
 
-1. Generates `verification.md` - a checklist of things to test
+1. Generates `verification.md` - a checklist of things to test, including documentation checks
 2. Moves the PRD to `testing` status
 
 Run automated tests:
@@ -292,6 +298,7 @@ The test agent will:
 - Wait for health check
 - Run project quality checks (lint, typecheck, tests)
 - Go through the verification checklist
+- Check whether affected files under `docs/**/*.md` were updated
 - Try to break the app (edge cases, invalid inputs, etc.)
 - Take screenshots of any issues (with Playwriter)
 - Save API responses for debugging
@@ -364,8 +371,8 @@ health_check = "./scripts/ralph/health-check.sh"
 teardown = "./scripts/ralph/teardown.sh"
 
 # [ralph.docs]
-# path = "docs"            # Documentation directory (default: "docs")
-# auto_update = true        # Update docs on PRD completion (default: true)
+# path = "docs"            # Documentation directory (default: "docs"; Ralph expects markdown files under docs/**/*.md)
+# auto_update = true        # Safety-net doc update on PRD completion (default: true)
 # agent = "claude-opus"     # Optional. Agent for doc updates (default: default_agent)
 
 [ralph.agents.claude]

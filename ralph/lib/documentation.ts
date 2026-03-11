@@ -166,6 +166,7 @@ export async function generateDocumentationUpdatePrompt(
 	const prompt = `# Documentation Update Task
 
 You are updating project documentation after completing a PRD. Your goal is to ensure documentation stays accurate and reflects the current state of the system.
+This step is a safety net after implementation and verification. Prefer targeted corrections to any documentation that should already have been updated during the PRD work.
 
 ## Completed PRD Information
 
@@ -200,6 +201,7 @@ ${docsSummary}
    - Terminology changes that affect existing docs
    - New patterns or conventions that should be documented
    - Architecture changes that affect system docs
+   - Missing updates to docs under the standard project docs tree (\`docs/**/*.md\`)
 
 3. **Update documentation**: For each relevant doc file, make updates following the principles below.
 

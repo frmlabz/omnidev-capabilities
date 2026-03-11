@@ -13,6 +13,8 @@ import type { RalphConfig, TestReport, TestResult } from "./types.js";
 import { getVerification } from "./verification.js";
 import { getStatusDir } from "./core/paths.js";
 
+const DEFAULT_DOCS_GLOB = "docs/**/*.md";
+
 /**
  * Playwriter instructions for web testing
  */
@@ -203,6 +205,7 @@ Save all evidence to: \`${testResultsDir}/\`
 - Spec: ${prdDir}/spec.md
 - Progress: ${prdDir}/progress.txt (append testing session here)
 - Verification: ${prdDir}/verification.md (update checkboxes here)
+- Documentation: ${DEFAULT_DOCS_GLOB}
 - Test Results: ${prdDir}/test-results/
 
 </Context>
@@ -246,7 +249,14 @@ Go through the verification checklist systematically:
 - Take screenshots of failures
 - Save API responses
 
-### 4. Probe for failures (edge cases)
+### 4. Verify documentation completeness
+
+- Check the affected files under **${DEFAULT_DOCS_GLOB}**
+- Confirm behavior, commands, config, APIs, and workflows introduced by this PRD are documented where needed
+- If docs are missing or stale, report PRD_FAILED
+- Update the documentation-related checkboxes in verification.md
+
+### 5. Probe for failures (edge cases)
 
 For each feature, test these categories as applicable:
 
@@ -260,17 +270,17 @@ For each feature, test these categories as applicable:
 
 **Security:** unauthenticated access to protected resources, cross-user data access, sensitive data in responses/logs
 
-### 5. Update verification.md with final results
+### 6. Update verification.md with final results
 
 Mark all tested items: \`[x]\` for pass, \`[ ]\` for fail with notes explaining why.
 
-### 6. Document findings in progress.txt
+### 7. Document findings in progress.txt
 
 Complete the testing session entry. Be specific: what input caused what failure.
 
-### 7. Output final signal
+### 8. Output final signal
 
-PRD_VERIFIED only if both happy path and edge cases pass.
+PRD_VERIFIED only if happy path, documentation checks, and edge cases all pass.
 
 </Investigation_Protocol>
 
@@ -311,6 +321,7 @@ Create a detailed report, then output your signal:
 ### Passed
 - [x] User can log in
 - [x] Dashboard loads correctly
+- [x] Relevant docs under docs/**/*.md were updated
 
 ### Failed
 - [ ] User profile shows wrong email - Screenshot: screenshots/issue-001.png
@@ -335,9 +346,9 @@ If quality checks fail 3 times in a row, stop retrying and report PRD_FAILED wit
 
 <Examples>
 
-**Good test session:** Runs quality checks first, goes through verification checklist item by item, tries invalid inputs on each form field, tests API with missing fields, documents every test in progress.txt, screenshots failures, outputs clear signal with specific issue list.
+**Good test session:** Runs quality checks first, goes through verification checklist item by item, checks the affected docs under docs/**/*.md, tries invalid inputs on each form field, tests API with missing fields, documents every test in progress.txt, screenshots failures, outputs clear signal with specific issue list.
 
-**Bad test session:** Runs the app once, confirms it loads, outputs PRD_VERIFIED without testing edge cases or updating verification.md.
+**Bad test session:** Runs the app once, confirms it loads, ignores docs, and outputs PRD_VERIFIED without testing edge cases or updating verification.md.
 
 </Examples>
 `;

@@ -11,6 +11,8 @@ import { findPRDLocation, getPRD, getProgress, getSpec } from "./state.js";
 import type { AgentConfig } from "./types.js";
 import { getStatusDir, atomicWrite } from "./core/paths.js";
 
+const DEFAULT_DOCS_GLOB = "docs/**/*.md";
+
 /**
  * Get the path to the verification file
  */
@@ -124,6 +126,7 @@ Create a comprehensive verification checklist in markdown format. The checklist 
 2. **Be specific** - Reference exact pages, APIs, or functionality
 3. **Cover all acceptance criteria** - Every story's criteria should be testable
 4. **Include edge cases** - Think about error states and boundary conditions
+5. **Verify documentation** - Include checks for any required updates in ${DEFAULT_DOCS_GLOB}
 
 ## Output Format
 
@@ -157,6 +160,11 @@ Output ONLY the markdown content for verification.md. Use this exact structure:
 ## Edge Cases & Error Handling
 - [ ] [Edge case 1] - [Expected behavior]
 - [ ] [Error scenario] - [Expected error message/handling]
+
+## Documentation Verification
+- [ ] Relevant files under \`${DEFAULT_DOCS_GLOB}\` were reviewed for this PRD
+- [ ] Any changed behavior, API contract, config, command, or workflow was reflected in the affected docs
+- [ ] No outdated documentation remains for the areas touched by this PRD
 
 ## Story-Specific Verification
 
@@ -254,6 +262,12 @@ export async function generateSimpleVerification(
 	lines.push("- [ ] All type checks pass");
 	lines.push("- [ ] All tests pass");
 	lines.push("- [ ] Code formatting is correct");
+	lines.push("");
+
+	lines.push("## Documentation Verification");
+	lines.push(`- [ ] Relevant files under \`${DEFAULT_DOCS_GLOB}\` were reviewed`);
+	lines.push("- [ ] Any required documentation updates were made");
+	lines.push("- [ ] No outdated documentation remains for the changed behavior");
 	lines.push("");
 
 	lines.push("## Notes");
