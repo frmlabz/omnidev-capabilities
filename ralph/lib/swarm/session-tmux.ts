@@ -11,6 +11,9 @@ import { type Result, ok, err } from "../results.js";
 import type { SessionBackend, PaneInfo, PaneOptions } from "./types.js";
 
 const execFileAsync = promisify(execFile);
+const BOOTSTRAP_PANE_TITLE = "__ralph_swarm_bootstrap__";
+
+type TmuxExecutor = (...args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 /**
  * Execute a tmux command and return stdout
@@ -29,31 +32,34 @@ function isNoServer(msg: string): boolean {
 	);
 }
 
-/**
- * Execute a tmux command, returning stdout string or an error Result
- */
-async function tmuxResult(...args: string[]): Promise<Result<string>> {
-	try {
-		const { stdout } = await tmux(...args);
-		return ok(stdout.trim());
-	} catch (error) {
-		const msg = error instanceof Error ? error.message : String(error);
-		return err("TMUX_ERROR", msg);
-	}
-}
-
 export class TmuxSessionBackend implements SessionBackend {
 	readonly name = "tmux";
 
 	private panesPerWindow: number;
+	private execTmux: TmuxExecutor;
 
-	constructor(panesPerWindow = 4) {
+	constructor(panesPerWindow = 4, execTmux: TmuxExecutor = tmux) {
 		this.panesPerWindow = panesPerWindow;
+		this.execTmux = execTmux;
+	}
+
+	private async runTmux(...args: string[]): Promise<{ stdout: string; stderr: string }> {
+		return this.execTmux(...args);
+	}
+
+	private async runTmuxResult(...args: string[]): Promise<Result<string>> {
+		try {
+			const { stdout } = await this.runTmux(...args);
+			return ok(stdout.trim());
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			return err("TMUX_ERROR", msg);
+		}
 	}
 
 	async isAvailable(): Promise<boolean> {
 		try {
-			await tmux("has-session", "-t", "__probe_nonexistent__");
+			await this.runTmux("has-session", "-t", "__probe_nonexistent__");
 			return true;
 		} catch (error) {
 			// "no server running" means tmux exists but no sessions — still available
@@ -73,7 +79,21 @@ export class TmuxSessionBackend implements SessionBackend {
 		if (exists.data) return ok(undefined);
 
 		try {
-			await tmux("new-session", "-d", "-s", name, "-x", "200", "-y", "50");
+			const paneResult = await this.runTmuxResult(
+				"new-session",
+				"-d",
+				"-s",
+				name,
+				"-x",
+				"200",
+				"-y",
+				"50",
+				"-P",
+				"-F",
+				"#{pane_id}",
+			);
+			if (!paneResult.ok) return err(paneResult.error!.code, paneResult.error!.message);
+			await this.runTmux("select-pane", "-t", paneResult.data!, "-T", BOOTSTRAP_PANE_TITLE);
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -83,7 +103,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async sessionExists(name: string): Promise<Result<boolean>> {
 		try {
-			await tmux("has-session", "-t", name);
+			await this.runTmux("has-session", "-t", name);
 			return ok(true);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -96,7 +116,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async destroySession(name: string): Promise<Result<void>> {
 		try {
-			await tmux("kill-session", "-t", name);
+			await this.runTmux("kill-session", "-t", name);
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -108,50 +128,71 @@ export class TmuxSessionBackend implements SessionBackend {
 	}
 
 	async createPane(session: string, options: PaneOptions): Promise<Result<PaneInfo>> {
-		// Find a window with available slots, or create a new one
-		const windowId = options.windowId ?? (await this.findAvailableWindow(session));
-
 		try {
-			let paneId: string;
+			const bootstrapPane =
+				options.windowId === undefined ? await this.findBootstrapPane(session) : undefined;
 
-			if (windowId) {
-				// Split an existing window
-				const result = await tmuxResult(
-					"split-window",
-					"-t",
-					windowId,
-					"-P",
-					"-F",
-					"#{pane_id}",
-					...(options.command ? [options.command] : []),
-				);
-				if (!result.ok) return err(result.error!.code, result.error!.message);
-				paneId = result.data!;
+			let paneId: string;
+			let resolvedWindowId = "";
+
+			if (bootstrapPane) {
+				paneId = bootstrapPane.paneId;
+				resolvedWindowId = bootstrapPane.windowId;
+				if (options.command) {
+					const sendResult = await this.sendCommand(paneId, options.command);
+					if (!sendResult.ok) return err(sendResult.error!.code, sendResult.error!.message);
+				}
 			} else {
-				// Create a new window in the session
-				const result = await tmuxResult(
-					"new-window",
-					"-t",
-					session,
-					"-P",
-					"-F",
-					"#{pane_id}",
-					...(options.command ? [options.command] : []),
-				);
-				if (!result.ok) return err(result.error!.code, result.error!.message);
-				paneId = result.data!;
+				// Find a window with available slots, or create a new one
+				const windowId = options.windowId ?? (await this.findAvailableWindow(session));
+
+				if (windowId) {
+					// Split an existing window
+					const result = await this.runTmuxResult(
+						"split-window",
+						"-t",
+						windowId,
+						"-P",
+						"-F",
+						"#{pane_id}",
+						...(options.command ? [options.command] : []),
+					);
+					if (!result.ok) return err(result.error!.code, result.error!.message);
+					paneId = result.data!;
+				} else {
+					// Create a new window in the session
+					const result = await this.runTmuxResult(
+						"new-window",
+						"-t",
+						session,
+						"-P",
+						"-F",
+						"#{pane_id}",
+						...(options.command ? [options.command] : []),
+					);
+					if (!result.ok) return err(result.error!.code, result.error!.message);
+					paneId = result.data!;
+				}
 			}
 
 			// Set pane title
-			await tmux("select-pane", "-t", paneId, "-T", options.title);
+			await this.runTmux("select-pane", "-t", paneId, "-T", options.title);
 
 			// Rebalance the window layout
 			const targetWindow = paneId.replace(/%\d+$/, "");
 			await this.rebalance(session, targetWindow).catch(() => {});
 
 			// Get the window ID for this pane
-			const infoResult = await tmuxResult("display-message", "-t", paneId, "-p", "#{window_id}");
-			const resolvedWindowId = infoResult.ok && infoResult.data ? infoResult.data : "";
+			if (!resolvedWindowId) {
+				const infoResult = await this.runTmuxResult(
+					"display-message",
+					"-t",
+					paneId,
+					"-p",
+					"#{window_id}",
+				);
+				resolvedWindowId = infoResult.ok && infoResult.data ? infoResult.data : "";
+			}
 
 			return ok({
 				paneId,
@@ -167,7 +208,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async destroyPane(paneId: string): Promise<Result<void>> {
 		try {
-			await tmux("kill-pane", "-t", paneId);
+			await this.runTmux("kill-pane", "-t", paneId);
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -180,7 +221,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async sendCommand(paneId: string, command: string): Promise<Result<void>> {
 		try {
-			await tmux("send-keys", "-t", paneId, command, "Enter");
+			await this.runTmux("send-keys", "-t", paneId, command, "Enter");
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -190,7 +231,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async sendInterrupt(paneId: string): Promise<Result<void>> {
 		try {
-			await tmux("send-keys", "-t", paneId, "C-c", "");
+			await this.runTmux("send-keys", "-t", paneId, "C-c", "");
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -201,7 +242,7 @@ export class TmuxSessionBackend implements SessionBackend {
 	async rebalance(session: string, windowId?: string): Promise<Result<void>> {
 		const target = windowId ?? session;
 		try {
-			await tmux("select-layout", "-t", target, "tiled");
+			await this.runTmux("select-layout", "-t", target, "tiled");
 			return ok(undefined);
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -211,7 +252,13 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async getPaneCount(session: string, windowId?: string): Promise<Result<number>> {
 		try {
-			const { stdout } = await tmux("list-panes", "-t", windowId ?? session, "-F", "#{pane_id}");
+			const { stdout } = await this.runTmux(
+				"list-panes",
+				"-t",
+				windowId ?? session,
+				"-F",
+				"#{pane_id}",
+			);
 			const count = stdout.trim().split("\n").filter(Boolean).length;
 			return ok(count);
 		} catch (error) {
@@ -223,7 +270,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async listPanes(session: string): Promise<Result<PaneInfo[]>> {
 		try {
-			const { stdout } = await tmux(
+			const { stdout } = await this.runTmux(
 				"list-panes",
 				"-s",
 				"-t",
@@ -258,7 +305,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
 	async isPaneAlive(paneId: string): Promise<Result<boolean>> {
 		try {
-			const { stdout } = await tmux("display-message", "-t", paneId, "-p", "#{pane_pid}");
+			const { stdout } = await this.runTmux("display-message", "-t", paneId, "-p", "#{pane_pid}");
 			const pid = stdout.trim();
 			return ok(!!pid && pid !== "0");
 		} catch (error) {
@@ -273,12 +320,18 @@ export class TmuxSessionBackend implements SessionBackend {
 	async focusPane(paneId: string): Promise<Result<void>> {
 		try {
 			// Select the target pane/window within the session
-			await tmux("select-pane", "-t", paneId);
-			await tmux("select-window", "-t", paneId);
+			await this.runTmux("select-pane", "-t", paneId);
+			await this.runTmux("select-window", "-t", paneId);
 
 			// If we're not inside tmux, attach interactively
 			if (!process.env["TMUX"]) {
-				const { stdout } = await tmux("display-message", "-t", paneId, "-p", "#{session_name}");
+				const { stdout } = await this.runTmux(
+					"display-message",
+					"-t",
+					paneId,
+					"-p",
+					"#{session_name}",
+				);
 				execFileSync("tmux", ["attach-session", "-t", stdout.trim()], {
 					stdio: "inherit",
 				});
@@ -296,7 +349,7 @@ export class TmuxSessionBackend implements SessionBackend {
 	 */
 	private async findAvailableWindow(session: string): Promise<string | undefined> {
 		try {
-			const { stdout } = await tmux(
+			const { stdout } = await this.runTmux(
 				"list-windows",
 				"-t",
 				session,
@@ -318,5 +371,12 @@ export class TmuxSessionBackend implements SessionBackend {
 			// Session might be empty — return undefined
 			return undefined;
 		}
+	}
+
+	private async findBootstrapPane(session: string): Promise<PaneInfo | undefined> {
+		const panesResult = await this.listPanes(session);
+		if (!panesResult.ok) return undefined;
+
+		return panesResult.data?.find((pane) => pane.title === BOOTSTRAP_PANE_TITLE);
 	}
 }
