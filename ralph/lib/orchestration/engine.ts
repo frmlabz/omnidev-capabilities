@@ -445,13 +445,21 @@ export class OrchestrationEngine {
 			const latestPrdResult = await this.ctx.store.get(prdName);
 			const latestPrd = latestPrdResult.ok ? latestPrdResult.data! : _prd;
 			// Skip the full review pipeline when this PRD is in a post-failure fix cycle.
-			const shouldRunReview = latestPrd.testsCaughtIssue !== true;
+			// Agents sometimes hand-edit prd.json and can accidentally drop top-level metadata,
+			// so infer the same state from generated FIX stories as a fallback.
+			const inferredPostFailureFixCycle = latestPrd.stories.some((story) =>
+				story.id.startsWith("FIX-"),
+			);
+			const shouldRunReview = latestPrd.testsCaughtIssue !== true && !inferredPostFailureFixCycle;
 
 			if (!shouldRunReview) {
 				emit({
 					type: "log",
 					level: "info",
-					message: "Skipping full review pipeline because this PRD is in post-failure fix mode.",
+					message:
+						latestPrd.testsCaughtIssue === true
+							? "Skipping full review pipeline because this PRD is in post-failure fix mode."
+							: "Skipping full review pipeline because this PRD has FIX stories from a prior test failure.",
 				});
 			}
 

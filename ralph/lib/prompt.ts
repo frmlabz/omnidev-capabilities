@@ -172,19 +172,22 @@ git commit -m "feat: [${story.id}] - ${story.title}"
 
 ### 7. Update PRD
 
-Update the story status in the PRD file. The PRD file tracks iteration state — if you skip this, the next iteration will re-run this story.
+Update only the current story status in the PRD file. The PRD file tracks iteration state and metadata for later phases — if you skip this, the next iteration will re-run this story, and if you rewrite the file loosely you can delete important top-level fields.
 
 \`\`\`bash
 PRD_FILE="${prdDir}/prd.json"
-# Find the story with id "${story.id}" and change its "status" to "completed"
+# Find the story with id "${story.id}" and change only its "status" to "completed"
 \`\`\`
 
-The story object should look like:
+Preserve all existing top-level PRD fields such as \`testsCaughtIssue\`, \`dependencies\`, \`startedAt\`, \`completedAt\`, \`lastRun\`, and \`metrics\`.
+Preserve all existing fields on the story object too. Do not replace the whole PRD or whole story with a reduced template.
+
+The updated story should still include its existing fields, with \`status\` changed to \`completed\`:
 \`\`\`json
 {
   "id": "${story.id}",
-  "status": "completed",
   "title": "${story.title}",
+  "status": "completed",
   "acceptanceCriteria": [...],
   "priority": ${story.priority}
 }

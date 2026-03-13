@@ -107,6 +107,19 @@ export class AgentExecutor {
 			let lineBuffer = "";
 			const streamCtx: StreamContext = { plainText: "" };
 			let aborted = false;
+			let settled = false;
+
+			const safeResolve = (result: AgentResult) => {
+				if (settled) return;
+				settled = true;
+				resolve(result);
+			};
+
+			const safeReject = (error: Error) => {
+				if (settled) return;
+				settled = true;
+				reject(error);
+			};
 
 			// Handle abort signal
 			const abortHandler = () => {
@@ -147,7 +160,14 @@ export class AgentExecutor {
 				if (options?.signal) {
 					options.signal.removeEventListener("abort", abortHandler);
 				}
-				reject(error);
+				safeReject(error);
+			});
+
+			proc.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+				if (error.code === "EPIPE" || error.code === "ERR_STREAM_DESTROYED") {
+					return;
+				}
+				safeReject(error);
 			});
 
 			proc.on("close", (code) => {
@@ -165,7 +185,7 @@ export class AgentExecutor {
 				const output =
 					options?.stream !== false && streamCtx.plainText ? streamCtx.plainText : stdout + stderr;
 
-				resolve({
+				safeResolve({
 					output,
 					exitCode: code ?? 1,
 					aborted,
@@ -173,9 +193,15 @@ export class AgentExecutor {
 			});
 
 			// Write prompt to stdin
-			if (proc.stdin) {
-				proc.stdin.write(prompt);
-				proc.stdin.end();
+			if (proc.stdin && !proc.stdin.destroyed) {
+				try {
+					proc.stdin.end(prompt);
+				} catch (error) {
+					const stdinError = error as NodeJS.ErrnoException;
+					if (stdinError.code !== "EPIPE" && stdinError.code !== "ERR_STREAM_DESTROYED") {
+						safeReject(stdinError);
+					}
+				}
 			}
 		});
 	}

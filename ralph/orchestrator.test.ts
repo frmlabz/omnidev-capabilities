@@ -57,6 +57,17 @@ command = "printf"
 args = ["local"]
 `;
 
+function prepareReviewableFeatureBranch(repoRoot: string): void {
+	writeFileSync(join(repoRoot, "tracked.txt"), "base\n");
+	execSync("git add tracked.txt", { cwd: repoRoot });
+	execSync('git commit -m "base tracked file" -q', { cwd: repoRoot });
+	execSync("git branch -M main", { cwd: repoRoot });
+	execSync("git checkout -q -b feature/review-skip", { cwd: repoRoot });
+	writeFileSync(join(repoRoot, "tracked.txt"), "feature change\n");
+	execSync("git add tracked.txt", { cwd: repoRoot });
+	execSync('git commit -m "feature change" -q', { cwd: repoRoot });
+}
+
 // Helper to create a PRD directly
 async function createTestPRD(
 	name: string,
@@ -266,4 +277,73 @@ it("completes when no stories remain", async () => {
 
 	assert.ok(result.ok);
 	assert.strictEqual(result.data!.outcome, "moved_to_testing");
+});
+
+it("skips review after a failed test cycle even if testsCaughtIssue was dropped from prd.json", async () => {
+	prepareReviewableFeatureBranch(REPO_ROOT);
+	await createTestPRD(
+		"fix-cycle-prd",
+		{
+			description: "PRD resuming after failed testing",
+			stories: [
+				{
+					id: "US-001",
+					title: "Original work",
+					acceptanceCriteria: ["Done"],
+					status: "completed",
+					priority: 1,
+					questions: [],
+				},
+				{
+					id: "FIX-001",
+					title: "Fix bugs from testing",
+					acceptanceCriteria: ["Fix test failures"],
+					status: "completed",
+					priority: 1,
+					questions: [],
+				},
+			],
+		},
+		"in_progress",
+	);
+
+	const events: Array<{ type: string; message?: string; phase?: string }> = [];
+	const mockAgentExecutor = {
+		async run() {
+			return {
+				output: "<review-result>APPROVE</review-result>",
+				exitCode: 0,
+				aborted: false,
+			};
+		},
+		parseTokenUsage() {
+			return {};
+		},
+		hasCompletionSignal(output: string) {
+			return output.includes("<promise>COMPLETE</promise>");
+		},
+		parseStatus() {
+			return null;
+		},
+	};
+
+	const engine = createEngine({
+		projectName: PROJECT_NAME,
+		repoRoot: REPO_ROOT,
+		agentExecutor: mockAgentExecutor as never,
+	});
+	const result = await engine.runDevelopment("fix-cycle-prd", {
+		onEvent: (event) => events.push(event),
+	});
+
+	assert.ok(result.ok);
+	assert.strictEqual(result.data!.outcome, "moved_to_testing");
+	assert.ok(
+		events.some(
+			(event) =>
+				event.type === "log" &&
+				event.message?.includes("Skipping full review pipeline because this PRD has FIX stories"),
+		),
+	);
+	assert.ok(!events.some((event) => event.type === "review_start"));
 });
