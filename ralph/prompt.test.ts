@@ -3,12 +3,13 @@
  */
 
 import assert from "node:assert";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, it } from "node:test";
 import { generatePrompt, getStatusDir, ensureDirectories } from "./lib/index.js";
 import type { PRD, Story } from "./lib/types.js";
+import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 
 const PROJECT_NAME = "test";
 const REPO_ROOT = "/test-repo";
@@ -37,12 +38,7 @@ async function createTestPRD(name: string, prd: Partial<PRD> = {}): Promise<void
 }
 
 beforeEach(() => {
-	testDir = join(
-		process.cwd(),
-		".test-ralph-prompt",
-		`test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-	);
-	mkdirSync(testDir, { recursive: true });
+	testDir = createTmpTestDir("test-ralph-prompt");
 	originalXdg = process.env["XDG_STATE_HOME"];
 	process.env["XDG_STATE_HOME"] = testDir;
 	ensureDirectories(PROJECT_NAME, REPO_ROOT);
@@ -54,9 +50,7 @@ afterEach(() => {
 	} else {
 		delete process.env["XDG_STATE_HOME"];
 	}
-	if (existsSync(testDir)) {
-		rmSync(testDir, { recursive: true, force: true });
-	}
+	cleanupTmpTestDir(testDir);
 });
 
 it("generates prompt with PRD context", async () => {

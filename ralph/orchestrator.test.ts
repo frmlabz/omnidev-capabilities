@@ -3,7 +3,7 @@
  */
 
 import assert from "node:assert";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import {
 	ensureDirectories,
 } from "./lib/index.js";
 import type { PRD } from "./lib/types.js";
+import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 
 const PROJECT_NAME = "test";
 let REPO_ROOT = "";
@@ -101,12 +102,7 @@ async function createTestPRD(
 }
 
 beforeEach(() => {
-	testDir = join(
-		"/tmp",
-		"ralph-test",
-		`test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-	);
-	mkdirSync(testDir, { recursive: true });
+	testDir = createTmpTestDir("ralph-test");
 	originalCwd = process.cwd();
 	process.chdir(testDir);
 	execSync("git init -q", { cwd: testDir });
@@ -125,9 +121,7 @@ afterEach(() => {
 	} else {
 		delete process.env["XDG_STATE_HOME"];
 	}
-	if (existsSync(testDir)) {
-		rmSync(testDir, { recursive: true, force: true });
-	}
+	cleanupTmpTestDir(testDir);
 });
 
 it("loads valid config", async () => {

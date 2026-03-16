@@ -3,7 +3,7 @@
  */
 
 import assert from "node:assert";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -27,6 +27,7 @@ import {
 	updateStoryStatus,
 } from "./lib/index.js";
 import type { PRD, PRDStatus } from "./lib/types.js";
+import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 
 const PROJECT_NAME = "test";
 const REPO_ROOT = "/test-repo";
@@ -61,12 +62,7 @@ async function createTestPRD(
 }
 
 beforeEach(() => {
-	testDir = join(
-		process.cwd(),
-		".test-ralph",
-		`test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-	);
-	mkdirSync(testDir, { recursive: true });
+	testDir = createTmpTestDir("test-ralph");
 	originalXdg = process.env["XDG_STATE_HOME"];
 	process.env["XDG_STATE_HOME"] = testDir;
 	ensureDirectories(PROJECT_NAME, REPO_ROOT);
@@ -78,9 +74,7 @@ afterEach(() => {
 	} else {
 		delete process.env["XDG_STATE_HOME"];
 	}
-	if (existsSync(testDir)) {
-		rmSync(testDir, { recursive: true, force: true });
-	}
+	cleanupTmpTestDir(testDir);
 });
 
 describe("findPRDLocation", () => {

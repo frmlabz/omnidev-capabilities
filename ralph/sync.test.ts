@@ -1,8 +1,10 @@
 import assert from "node:assert";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { afterEach, beforeEach, it } from "node:test";
 import { sync } from "./sync.ts";
+import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 
 let testDir: string;
 let originalXdg: string | undefined;
@@ -19,14 +21,10 @@ args = ["test output"]
 `;
 
 beforeEach(() => {
-	testDir = join(
-		process.cwd(),
-		".test-ralph-sync",
-		`test-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-	);
-	mkdirSync(testDir, { recursive: true });
+	testDir = createTmpTestDir("test-ralph-sync");
 	originalCwd = process.cwd();
 	process.chdir(testDir);
+	execSync("git init -q", { cwd: testDir });
 	originalXdg = process.env["XDG_STATE_HOME"];
 	process.env["XDG_STATE_HOME"] = testDir;
 	writeFileSync(join(testDir, "omni.toml"), MOCK_CONFIG);
@@ -39,9 +37,7 @@ afterEach(() => {
 	} else {
 		delete process.env["XDG_STATE_HOME"];
 	}
-	if (existsSync(testDir)) {
-		rmSync(testDir, { recursive: true, force: true });
-	}
+	cleanupTmpTestDir(testDir);
 });
 
 it("creates XDG state directory structure", async () => {
