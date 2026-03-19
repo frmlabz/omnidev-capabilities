@@ -178,6 +178,21 @@ it("merges omni.local.toml over omni.toml", async () => {
 	assert.ok(config.agents["claude"] !== undefined);
 });
 
+it("loads review todo_file config", async () => {
+	writeFileSync(
+		join(testDir, "omni.toml"),
+		`${MOCK_CONFIG}
+
+[ralph.review]
+todo_file = ".ralph-review-todo.md"
+`,
+	);
+
+	const result = await loadConfig();
+	assert.ok(result.ok);
+	assert.strictEqual(result.data!.review?.todo_file, ".ralph-review-todo.md");
+});
+
 it("accepts Ralph config provided only by omni.local.toml", async () => {
 	writeFileSync(join(testDir, "omni.toml"), '[workspace]\nname = "test"\n');
 	writeFileSync(join(testDir, "omni.local.toml"), LOCAL_ONLY_CONFIG);

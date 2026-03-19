@@ -86,6 +86,7 @@ interface RawReviewConfig {
 	first_review_agents?: string[];
 	second_review_agents?: string[];
 	max_fix_iterations?: number;
+	todo_file?: string;
 }
 
 interface RawSwarmConfig {
@@ -220,6 +221,9 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 		}
 		if (ralph.review.max_fix_iterations !== undefined) {
 			review.max_fix_iterations = ralph.review.max_fix_iterations;
+		}
+		if (ralph.review.todo_file) {
+			review.todo_file = ralph.review.todo_file;
 		}
 		config.review = review;
 	}
@@ -411,6 +415,7 @@ export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 		first_review_agents: config.review?.first_review_agents ?? DEFAULT_FIRST_REVIEW_AGENTS,
 		second_review_agents: config.review?.second_review_agents ?? DEFAULT_SECOND_REVIEW_AGENTS,
 		max_fix_iterations: config.review?.max_fix_iterations ?? 3,
+		todo_file: config.review?.todo_file ?? "",
 	};
 }
 

@@ -189,6 +189,8 @@ export interface ReviewConfig {
 	second_review_agents?: string[];
 	/** Max fix iterations per review phase (default: 3) */
 	max_fix_iterations?: number;
+	/** Optional TODO markdown file for persisting non-blocking review findings. Relative paths resolve from repo root. */
+	todo_file?: string;
 }
 
 /**

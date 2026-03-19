@@ -108,7 +108,7 @@ ralph/
 **State Management:**
 - State stored at `$XDG_STATE_HOME/omnidev/ralph/<project>/` (defaults to `~/.local/state/...`)
 - PRD folders: `prds/<status>/<name>/` with prd.json, spec.md, progress.txt
-- Review results: `review-results/first-review.md`, `second-review.md`, `external-review.md`
+- Review results: `review-results/first-review.md`, `second-review.md`
 - Swarm state: `swarm.json` in project state dir
 - Story status: pending → in_progress → completed/blocked
 - `project_name` required in config (slug format: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)

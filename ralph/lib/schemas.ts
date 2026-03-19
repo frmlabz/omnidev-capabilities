@@ -120,6 +120,7 @@ export const ReviewConfigSchema = z.object({
 	first_review_agents: z.array(z.string()).optional(),
 	second_review_agents: z.array(z.string()).optional(),
 	max_fix_iterations: z.number().int().min(1).max(10).optional(),
+	todo_file: z.string().min(1).optional(),
 });
 
 /**

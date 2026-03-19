@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Aggregated review pass + review TODO file** — The first review pass now aggregates all specialized reviewers plus the optional external reviewer before triggering fixes, reducing serial review churn. New `[ralph.review].todo_file` lets Ralph persist non-blocking review findings to a markdown TODO file so follow-ups and suggestions do not get lost.
 - **Auto-commit after PRD verification** — When a PRD is verified, the engine now spawns the default agent to commit any uncommitted changes (documentation updates, config, etc.) using the ralph commit format. Best-effort — failures log a warning and do not block completion.
 - **Swarm merge agent config** — New `merge_agent` field under `[ralph.swarm]` allows routing merge operations to a specific agent. Resolution: `--agent` flag → `swarm.merge_agent` → `default_agent`. Existing configs with no new fields produce identical behavior.
 - **Per-phase agent configuration for verification and docs** — New `verification_agent` field under `[ralph]` and `agent` field under `[ralph.docs]` allow routing verification generation and documentation updates to different LLM agents. Both fall back independently to `default_agent` (no chain through `review.agent`). Existing configs with no new fields produce identical behavior.

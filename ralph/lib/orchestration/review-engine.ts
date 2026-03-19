@@ -6,10 +6,10 @@
  * and resolves them with an inline fix agent.
  */
 
-import { mkdirSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
+import { isAbsolute, join } from "node:path";
 import { getStatusDir } from "../core/paths.js";
 import type { PRDStatus } from "../types.js";
 import type { EngineContext, EngineEvent } from "./engine.js";
@@ -23,6 +23,7 @@ import type {
 } from "../types.js";
 import type { Result } from "../results.js";
 import { ok } from "../results.js";
+import { atomicWrite } from "../core/paths.js";
 import { getAgentConfig, type ResolvedReviewAgents } from "../core/config.js";
 import {
 	generateReviewPrompt,
@@ -102,6 +103,98 @@ function formatReviewResultsMarkdown(
 	return md;
 }
 
+const FINDING_SEVERITY_RANK: Record<ReviewFinding["severity"], number> = {
+	critical: 0,
+	major: 1,
+	minor: 2,
+	suggestion: 3,
+};
+
+function normalizeFindingKey(finding: ReviewFinding): string {
+	return `${finding.file}|${finding.line ?? ""}|${finding.issue.trim().toLowerCase()}`;
+}
+
+function dedupeFindings(findings: ReviewFinding[]): ReviewFinding[] {
+	const deduped = new Map<string, ReviewFinding>();
+
+	for (const finding of findings) {
+		const key = normalizeFindingKey(finding);
+		const existing = deduped.get(key);
+		if (!existing) {
+			deduped.set(key, { ...finding });
+			continue;
+		}
+
+		if (FINDING_SEVERITY_RANK[finding.severity] < FINDING_SEVERITY_RANK[existing.severity]) {
+			existing.severity = finding.severity;
+		}
+
+		const reviewers = new Set(existing.reviewer.split(", ").filter(Boolean));
+		reviewers.add(finding.reviewer);
+		existing.reviewer = Array.from(reviewers).join(", ");
+	}
+
+	return Array.from(deduped.values());
+}
+
+function classifyFindings(findings: ReviewFinding[]): {
+	blockers: ReviewFinding[];
+	followUps: ReviewFinding[];
+	noise: ReviewFinding[];
+} {
+	const deduped = dedupeFindings(findings);
+	return {
+		blockers: deduped.filter((f) => f.severity === "critical" || f.severity === "major"),
+		followUps: deduped.filter((f) => f.severity === "minor"),
+		noise: deduped.filter((f) => f.severity === "suggestion"),
+	};
+}
+
+function formatTodoFinding(finding: ReviewFinding): string {
+	return `- [${finding.severity.toUpperCase()}] ${finding.file}${finding.line ? `:${finding.line}` : ""} — ${finding.issue} (reviewer: ${finding.reviewer})`;
+}
+
+function formatTodoBlock(
+	prdName: string,
+	followUps: ReviewFinding[],
+	noise: ReviewFinding[],
+): string {
+	if (followUps.length === 0 && noise.length === 0) {
+		return "";
+	}
+
+	const lines = [
+		`<!-- ralph-review-todos:${prdName}:start -->`,
+		`## ${prdName}`,
+		"",
+		`Updated: ${new Date().toISOString()}`,
+		"",
+	];
+
+	if (followUps.length > 0) {
+		lines.push("### Follow-Ups", "");
+		for (const finding of followUps) {
+			lines.push(formatTodoFinding(finding));
+		}
+		lines.push("");
+	}
+
+	if (noise.length > 0) {
+		lines.push("### Noise / Suggestions", "");
+		for (const finding of noise) {
+			lines.push(formatTodoFinding(finding));
+		}
+		lines.push("");
+	}
+
+	lines.push(`<!-- ralph-review-todos:${prdName}:end -->`);
+	return `${lines.join("\n")}\n`;
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Review Engine - orchestrates the multi-phase review pipeline
  */
@@ -144,8 +237,15 @@ export class ReviewEngine {
 			return ok(undefined);
 		}
 
-		// Phase 1: First code review
-		log("info", "Starting Phase 1: First Code Review");
+		const externalAgentConfig = this.resolveExternalReviewAgent(
+			prdName,
+			config,
+			agents.fixAgent,
+			reviewConfig,
+		);
+
+		// Phase 1: Aggregated first-pass review
+		log("info", "Starting Phase 1: Aggregated Code Review");
 		emit({ type: "review_start", phase: "first" });
 
 		const firstResults = await this.runReviewRound(
@@ -159,6 +259,12 @@ export class ReviewEngine {
 			emit,
 			signal,
 			reviewConfig.max_fix_iterations,
+			reviewConfig.review_agent
+				? {
+						reviewType: `external-${reviewConfig.review_agent}`,
+						agentConfig: externalAgentConfig,
+					}
+				: undefined,
 		);
 
 		await writeFile(
@@ -169,43 +275,8 @@ export class ReviewEngine {
 		emit({ type: "review_phase_complete", phase: "first", clean: firstResults.clean });
 		log("info", `Phase 1 complete: ${firstResults.clean ? "clean" : "findings fixed"}`);
 
-		// Phase 2: External review (optional)
-		if (reviewConfig.review_agent) {
-			log("info", `Starting Phase 2: External Review (${reviewConfig.review_agent})`);
-			emit({ type: "review_start", phase: "external" });
-
-			const externalResult = await this.runExternalReview(
-				prdName,
-				prd,
-				config,
-				agents.fixAgent,
-				reviewConfig,
-				gitDiff,
-				emit,
-				signal,
-			);
-
-			if (externalResult) {
-				await writeFile(
-					join(resultsDir, "external-review.md"),
-					formatReviewResultsMarkdown(
-						"External",
-						externalResult.results,
-						externalResult.fixIterations,
-					),
-				);
-			}
-
-			emit({
-				type: "review_phase_complete",
-				phase: "external",
-				clean: externalResult?.clean ?? true,
-			});
-			log("info", "Phase 2 complete");
-		}
-
-		// Phase 3: Second code review (critical only)
-		log("info", "Starting Phase 3: Second Code Review (critical/major only)");
+		// Phase 2: Targeted verification review (critical only)
+		log("info", "Starting Phase 2: Targeted Verification Review (critical/major only)");
 		emit({ type: "review_start", phase: "second" });
 
 		const secondResults = await this.runReviewRound(
@@ -227,20 +298,55 @@ export class ReviewEngine {
 		);
 
 		emit({ type: "review_phase_complete", phase: "second", clean: secondResults.clean });
-		log("info", `Phase 3 complete: ${secondResults.clean ? "clean" : "findings fixed"}`);
+		log("info", `Phase 2 complete: ${secondResults.clean ? "clean" : "findings fixed"}`);
 
-		// Phase 4: Finalize (optional)
+		await this.writeTodoFindings(
+			prdName,
+			reviewConfig,
+			[
+				...firstResults.followUps,
+				...firstResults.noise,
+				...secondResults.followUps,
+				...secondResults.noise,
+			],
+			log,
+		);
+
+		// Phase 3: Finalize (optional)
 		if (reviewConfig.finalize_enabled) {
-			log("info", "Starting Phase 4: Finalize");
+			log("info", "Starting Phase 3: Finalize");
 			emit({ type: "review_start", phase: "finalize" });
 
 			await this.runFinalize(prdName, prd, agents.finalizeAgent, reviewConfig, emit, signal);
 
 			emit({ type: "review_phase_complete", phase: "finalize", clean: true });
-			log("info", "Phase 4 complete");
+			log("info", "Phase 3 complete");
 		}
 
 		return ok(undefined);
+	}
+
+	private resolveExternalReviewAgent(
+		prdName: string,
+		config: RalphConfig,
+		fallbackAgent: AgentConfig,
+		reviewConfig: Required<ReviewConfig>,
+	): AgentConfig {
+		if (!reviewConfig.review_agent) {
+			return fallbackAgent;
+		}
+
+		const externalAgentResult = getAgentConfig(config, reviewConfig.review_agent);
+		if (!externalAgentResult.ok) {
+			this.ctx.logger.log(
+				"warn",
+				`Review agent '${reviewConfig.review_agent}' not found in config, using fallback agent`,
+				{ prdName },
+			);
+			return fallbackAgent;
+		}
+
+		return externalAgentResult.data!;
 	}
 
 	/**
@@ -257,87 +363,168 @@ export class ReviewEngine {
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
 		maxFixIterations = 3,
-	): Promise<{ results: ReviewRoundResult[]; fixIterations: number; clean: boolean }> {
+		externalReview?: { reviewType: string; agentConfig: AgentConfig },
+	): Promise<{
+		results: ReviewRoundResult[];
+		fixIterations: number;
+		clean: boolean;
+		followUps: ReviewFinding[];
+		noise: ReviewFinding[];
+	}> {
 		for (let fixIteration = 0; fixIteration <= maxFixIterations; fixIteration++) {
 			if (signal?.aborted) {
-				return { results: [], fixIterations: fixIteration, clean: false };
+				return {
+					results: [],
+					fixIterations: fixIteration,
+					clean: false,
+					followUps: [],
+					noise: [],
+				};
 			}
 
-			// Run all review agents in parallel
-			const reviewPromises = reviewTypes.map(async (reviewType) => {
-				try {
-					const prompt = await generateReviewPrompt(
-						this.ctx.projectName,
-						this.ctx.repoRoot,
-						prdName,
-						reviewType,
-						prd,
-						gitDiff,
-						isSecondReview,
-					);
-					const result = await this.ctx.agentExecutor.run(prompt, reviewAgentConfig, {
-						stream: true,
-						signal,
-						onOutput: (data) => emit({ type: "agent_output", data }),
-					});
-
-					const parsed = parseReviewResult(result.output, reviewType);
-					emit({
-						type: "review_agent_complete",
-						reviewType,
-						decision: parsed.decision,
-						findingsCount: parsed.findings.length,
-					});
-					return parsed;
-				} catch (error) {
-					this.ctx.logger.log("warn", `Review agent ${reviewType} failed: ${error}`, { prdName });
-					return {
-						reviewType,
-						decision: "approve" as const,
-						findings: [],
-					};
-				}
-			});
-
-			const results = await Promise.all(reviewPromises);
-
-			// Collect actionable findings
-			let findings = results.flatMap((r) => r.findings);
-			if (isSecondReview) {
-				findings = findings.filter((f) => f.severity === "critical" || f.severity === "major");
-			}
-
-			const criticalOrMajor = findings.filter(
-				(f) => f.severity === "critical" || f.severity === "major",
+			const results = await this.runReviewerBatch(
+				prdName,
+				prd,
+				reviewTypes,
+				reviewAgentConfig,
+				gitDiff,
+				isSecondReview,
+				emit,
+				signal,
+				externalReview,
 			);
+			const classified = classifyFindings(results.flatMap((r) => r.findings));
 
-			if (criticalOrMajor.length === 0) {
-				return { results, fixIterations: fixIteration, clean: fixIteration === 0 };
+			if (classified.blockers.length === 0) {
+				return {
+					results,
+					fixIterations: fixIteration,
+					clean: fixIteration === 0,
+					followUps: classified.followUps,
+					noise: classified.noise,
+				};
 			}
 
 			// If we've exhausted fix iterations, return with remaining findings
 			if (fixIteration >= maxFixIterations) {
 				this.ctx.logger.log(
 					"warn",
-					`Max fix iterations (${maxFixIterations}) reached with ${criticalOrMajor.length} remaining findings`,
+					`Max fix iterations (${maxFixIterations}) reached with ${classified.blockers.length} remaining findings`,
 					{ prdName },
 				);
-				return { results, fixIterations: fixIteration, clean: false };
+				return {
+					results,
+					fixIterations: fixIteration,
+					clean: false,
+					followUps: classified.followUps,
+					noise: classified.noise,
+				};
 			}
 
 			// Run fix agent
 			emit({
 				type: "review_fix_start",
 				iteration: fixIteration + 1,
-				findingsCount: criticalOrMajor.length,
+				findingsCount: classified.blockers.length,
 			});
-			await this.runFixAgent(prdName, prd, criticalOrMajor, fixAgentConfig, emit, signal);
+			await this.runFixAgent(prdName, prd, classified.blockers, fixAgentConfig, emit, signal);
 
 			// Re-get diff for next review iteration
 			gitDiff = getGitDiff();
 		}
 
-		return { results: [], fixIterations: maxFixIterations, clean: false };
+		return {
+			results: [],
+			fixIterations: maxFixIterations,
+			clean: false,
+			followUps: [],
+			noise: [],
+		};
+	}
+
+	private async runReviewerBatch(
+		prdName: string,
+		prd: PRD,
+		reviewTypes: string[],
+		reviewAgentConfig: AgentConfig,
+		gitDiff: string,
+		isSecondReview: boolean,
+		emit: (event: EngineEvent) => void,
+		signal?: AbortSignal,
+		externalReview?: { reviewType: string; agentConfig: AgentConfig },
+	): Promise<ReviewRoundResult[]> {
+		const reviewPromises = reviewTypes.map(async (reviewType) => {
+			try {
+				const prompt = await generateReviewPrompt(
+					this.ctx.projectName,
+					this.ctx.repoRoot,
+					prdName,
+					reviewType,
+					prd,
+					gitDiff,
+					isSecondReview,
+				);
+				const result = await this.ctx.agentExecutor.run(prompt, reviewAgentConfig, {
+					stream: true,
+					signal,
+					onOutput: (data) => emit({ type: "agent_output", data }),
+				});
+
+				const parsed = parseReviewResult(result.output, reviewType);
+				emit({
+					type: "review_agent_complete",
+					reviewType,
+					decision: parsed.decision,
+					findingsCount: parsed.findings.length,
+				});
+				return parsed;
+			} catch (error) {
+				this.ctx.logger.log("warn", `Review agent ${reviewType} failed: ${error}`, { prdName });
+				return {
+					reviewType,
+					decision: "approve" as const,
+					findings: [],
+				};
+			}
+		});
+
+		if (externalReview) {
+			reviewPromises.push(
+				(async () => {
+					try {
+						const prompt = generateExternalReviewPrompt(prdName, prd, gitDiff);
+						const result = await this.ctx.agentExecutor.run(prompt, externalReview.agentConfig, {
+							stream: true,
+							signal,
+							onOutput: (data) => emit({ type: "agent_output", data }),
+						});
+						const parsed = parseReviewResult(result.output, externalReview.reviewType);
+						emit({
+							type: "review_agent_complete",
+							reviewType: externalReview.reviewType,
+							decision: parsed.decision,
+							findingsCount: parsed.findings.length,
+						});
+						return parsed;
+					} catch (error) {
+						this.ctx.logger.log(
+							"warn",
+							`Review agent ${externalReview.reviewType} failed: ${error}`,
+							{
+								prdName,
+							},
+						);
+						return {
+							reviewType: externalReview.reviewType,
+							decision: "approve" as const,
+							findings: [],
+						};
+					}
+				})(),
+			);
+		}
+
+		return Promise.all(reviewPromises);
 	}
 
 	/**
@@ -364,63 +551,43 @@ export class ReviewEngine {
 		}
 	}
 
-	/**
-	 * Run external review (codex or custom tool)
-	 */
-	private async runExternalReview(
+	private async writeTodoFindings(
 		prdName: string,
-		prd: PRD,
-		config: RalphConfig,
-		fixAgentConfig: AgentConfig,
 		reviewConfig: Required<ReviewConfig>,
-		gitDiff: string,
-		emit: (event: EngineEvent) => void,
-		signal?: AbortSignal,
-	): Promise<{ results: ReviewRoundResult[]; fixIterations: number; clean: boolean } | null> {
-		// Look up the external tool agent config
-		const externalAgentResult = getAgentConfig(config, reviewConfig.review_agent);
-		const externalAgentConfig = externalAgentResult.ok ? externalAgentResult.data! : fixAgentConfig;
-
-		if (!externalAgentResult.ok) {
-			this.ctx.logger.log(
-				"warn",
-				`Review agent '${reviewConfig.review_agent}' not found in config, using default agent`,
-				{ prdName },
-			);
+		findings: ReviewFinding[],
+		log: (level: "info" | "warn" | "error", message: string) => void,
+	): Promise<void> {
+		if (!reviewConfig.todo_file) {
+			return;
 		}
 
-		const prompt = generateExternalReviewPrompt(prdName, prd, gitDiff);
+		const { followUps, noise } = classifyFindings(findings);
+		const todoPath = isAbsolute(reviewConfig.todo_file)
+			? reviewConfig.todo_file
+			: join(this.ctx.repoRoot, reviewConfig.todo_file);
+		const startMarker = `<!-- ralph-review-todos:${prdName}:start -->`;
+		const endMarker = `<!-- ralph-review-todos:${prdName}:end -->`;
+		const blockPattern = new RegExp(
+			`${escapeRegExp(startMarker)}[\\s\\S]*?${escapeRegExp(endMarker)}\\n?`,
+			"g",
+		);
+		const existing = existsSync(todoPath)
+			? await readFile(todoPath, "utf-8")
+			: "# Ralph Review TODOs\n\n";
+		let next = existing.replace(blockPattern, "").trimEnd();
+		const block = formatTodoBlock(prdName, followUps, noise).trimEnd();
 
-		try {
-			const result = await this.ctx.agentExecutor.run(prompt, externalAgentConfig, {
-				stream: true,
-				signal,
-				onOutput: (data) => emit({ type: "agent_output", data }),
-			});
-
-			const parsed = parseReviewResult(result.output, `external-${reviewConfig.review_agent}`);
-			emit({
-				type: "review_agent_complete",
-				reviewType: `external-${reviewConfig.review_agent}`,
-				decision: parsed.decision,
-				findingsCount: parsed.findings.length,
-			});
-
-			const criticalOrMajor = parsed.findings.filter(
-				(f) => f.severity === "critical" || f.severity === "major",
-			);
-
-			if (criticalOrMajor.length > 0) {
-				emit({ type: "review_fix_start", iteration: 1, findingsCount: criticalOrMajor.length });
-				await this.runFixAgent(prdName, prd, criticalOrMajor, fixAgentConfig, emit, signal);
-				return { results: [parsed], fixIterations: 1, clean: false };
-			}
-
-			return { results: [parsed], fixIterations: 0, clean: true };
-		} catch (error) {
-			this.ctx.logger.log("warn", `External review failed: ${error}`, { prdName });
-			return null;
+		if (block) {
+			next = `${next}\n\n${block}`.trim();
 		}
+
+		await atomicWrite(todoPath, `${next}\n`);
+		log(
+			"info",
+			block
+				? `Saved ${followUps.length + noise.length} non-blocking review findings to ${todoPath}`
+				: `Cleared resolved non-blocking review findings from ${todoPath}`,
+		);
 	}
 
 	/**

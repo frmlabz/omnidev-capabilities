@@ -146,13 +146,12 @@ If a PRD returned from testing with failures, the PRD is marked so the next deve
 ```
 All stories complete
   → Extract findings
-  → Phase 1: First Code Review (5 parallel agents)
-  → Phase 1b: Fix agent resolves findings
-  → Phase 2: External Review (optional, e.g. codex)
-  → Phase 2b: Fix agent resolves findings
-  → Phase 3: Second Code Review (2 agents, critical only)
-  → Phase 3b: Fix agent resolves findings
-  → Phase 4: Finalize (optional)
+  → Phase 1: Aggregated Code Review (parallel internal reviewers + optional external reviewer)
+  → Phase 1b: Fix agent resolves aggregated blocker findings
+  → Phase 2: Targeted Verification Review (critical/major only)
+  → Phase 2b: Fix agent resolves remaining blocker findings
+  → Non-blocking findings optionally written to review todo file
+  → Phase 3: Finalize (optional)
   → Transition to testing
 ```
 
@@ -179,6 +178,8 @@ All review agents are read-only — they cannot modify files. Each agent outputs
 ```
 
 ### Fix Loop
+
+Ralph aggregates all first-pass reviewer output before spawning the fix agent. Only CRITICAL and MAJOR findings block the PR and get sent to the fix loop. MINOR findings are treated as follow-ups, and SUGGESTION findings are treated as noise/suggestions.
 
 When reviewers find CRITICAL or MAJOR issues, a fix agent is spawned to resolve them. The review-fix cycle repeats up to `max_fix_iterations` times (default: 3) or until the review is clean.
 
@@ -215,6 +216,10 @@ second_review_agents = ["quality", "implementation"]
 
 # Max fix iterations per review phase (default: 3)
 max_fix_iterations = 3
+
+# Optional markdown file for non-blocking review findings.
+# Relative paths resolve from the repo root.
+todo_file = ".ralph-review-todo.md"
 ```
 
 **Fallback chains:**
@@ -235,7 +240,7 @@ Verification and docs have their own optional overrides (independent of the revi
 
 ### External Review
 
-Configure a review agent (e.g., codex) for Phase 2:
+Configure a review agent (e.g., codex) to participate in the aggregated first pass:
 
 ```toml
 [ralph.review]
@@ -246,15 +251,16 @@ command = "npx"
 args = ["-y", "@openai/codex", "exec", "-c", "shell_environment_policy.inherit=all", "--dangerously-bypass-approvals-and-sandbox", "-"]
 ```
 
-The external tool receives a simplified review prompt with the git diff and acceptance criteria. Its output is parsed for findings using the same severity format.
+The external tool receives a simplified review prompt with the git diff and acceptance criteria. Its output is parsed with the same severity format and aggregated with the internal reviewers before the fix step.
 
 ### Review Results
 
 Review results are saved to `<state-dir>/prds/<status>/<prd-name>/review-results/`:
 
 - `first-review.md` — Phase 1 results
-- `external-review.md` — Phase 2 results (if external tool configured)
-- `second-review.md` — Phase 3 results
+- `second-review.md` — Phase 2 results
+
+If `todo_file` is configured, Ralph also maintains a per-PRD section in that markdown file for non-blocking review findings that should be tracked later.
 
 ### Disabling Review
 
