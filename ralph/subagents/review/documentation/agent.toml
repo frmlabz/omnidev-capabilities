@@ -1,0 +1,6 @@
+name = "review-documentation"
+description = "Documentation reviewer that identifies missing or outdated docs for changed code."
+
+[claude]
+model = "sonnet"
+disallowed_tools = ["Write", "Edit"]

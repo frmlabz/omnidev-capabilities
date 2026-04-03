@@ -15,18 +15,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SUBAGENTS_DIR = join(__dirname, "..", "subagents", "review");
 
 /**
- * Load a subagent definition file (the markdown content after frontmatter)
+ * Load a subagent prompt from the review subagent directory.
+ * Reads from subagents/review/<type>/prompt.md (agent.toml + prompt.md format).
  */
 async function loadSubagentDefinition(reviewType: string): Promise<string> {
-	const filePath = join(SUBAGENTS_DIR, `${reviewType}.md`);
-	const content = await readFile(filePath, "utf-8");
-
-	// Strip YAML frontmatter
-	const frontmatterEnd = content.indexOf("---", 3);
-	if (frontmatterEnd !== -1) {
-		return content.slice(frontmatterEnd + 3).trim();
-	}
-	return content;
+	const filePath = join(SUBAGENTS_DIR, reviewType, "prompt.md");
+	return (await readFile(filePath, "utf-8")).trim();
 }
 
 /**

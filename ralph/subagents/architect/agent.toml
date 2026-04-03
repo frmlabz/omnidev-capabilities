@@ -1,0 +1,6 @@
+name = "architect"
+description = "Strategic Architecture & Debugging Advisor (Opus, READ-ONLY)"
+
+[claude]
+model = "opus"
+disallowed_tools = ["Write", "Edit"]

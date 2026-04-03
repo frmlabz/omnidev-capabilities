@@ -1,10 +1,3 @@
----
-name: researcher
-description: External Documentation & Reference Researcher (Sonnet)
-model: sonnet
-disallowedTools: Write, Edit
----
-
 <Role>
 External documentation and reference researcher.
 

@@ -44,19 +44,19 @@ ralph/
 │       ├── engine.ts     # OrchestrationEngine class (main loop)
 │       ├── agent-runner.ts   # AgentExecutor class (spawns agents)
 │       └── review-engine.ts  # ReviewEngine class (multi-phase review pipeline)
-├── subagents/
-│   ├── architect.md      # Opus, read-only, strategic analysis
-│   ├── code-reviewer.md  # Opus, read-only, two-stage review
-│   ├── explore.md        # Haiku, read-only, codebase search
-│   ├── prd-reviewer.md   # Sonnet, read-only, PRD review (spec + stories)
-│   ├── spec-reviewer.md  # Sonnet, read-only, spec-only review (pre-stories)
-│   ├── research.md       # Sonnet, read-only, external docs
-│   └── review/           # Review pipeline agents
-│       ├── quality.md        # Sonnet, bugs/security/error handling
-│       ├── implementation.md # Sonnet, spec compliance
-│       ├── testing.md        # Sonnet, test coverage/quality
-│       ├── simplification.md # Sonnet, over-engineering/dead code
-│       └── documentation.md  # Haiku, missing/outdated docs
+├── subagents/                    # agent.toml + prompt.md format
+│   ├── architect/            # Opus, read-only, strategic analysis
+│   ├── code-reviewer/        # Opus, read-only, two-stage review
+│   ├── explore/              # Haiku, read-only, codebase search
+│   ├── prd-reviewer/         # Sonnet, read-only, PRD review (spec + stories)
+│   ├── spec-reviewer/        # Sonnet, read-only, spec-only review (pre-stories)
+│   ├── researcher/           # Sonnet, read-only, external docs
+│   └── review/               # Review pipeline agents
+│       ├── quality/          # Sonnet, bugs/security/error handling
+│       ├── implementation/   # Opus, spec compliance
+│       ├── testing/          # Sonnet, test coverage/quality
+│       ├── simplification/   # Opus, over-engineering/dead code
+│       └── documentation/    # Sonnet, missing/outdated docs
 └── skills/
     └── prd-creation/
         └── SKILL.md      # PRD generation workflow

@@ -1,0 +1,6 @@
+name = "spec-reviewer"
+description = "Reviews spec.md documents for requirements quality, clarity, and implementability before stories are created."
+
+[claude]
+model = "sonnet"
+disallowed_tools = ["Write", "Edit"]

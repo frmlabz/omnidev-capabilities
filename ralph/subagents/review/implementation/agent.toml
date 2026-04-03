@@ -1,0 +1,6 @@
+name = "review-implementation"
+description = "Spec compliance reviewer that verifies implementation matches acceptance criteria and PRD requirements."
+
+[claude]
+model = "opus"
+disallowed_tools = ["Write", "Edit"]

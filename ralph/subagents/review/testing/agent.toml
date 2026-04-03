@@ -1,0 +1,6 @@
+name = "review-testing"
+description = "Test coverage reviewer that identifies missing tests, weak assertions, and untested edge cases."
+
+[claude]
+model = "sonnet"
+disallowed_tools = ["Write", "Edit"]

@@ -1,0 +1,6 @@
+name = "review-quality"
+description = "Focused code quality reviewer for bugs, security vulnerabilities, race conditions, and error handling gaps."
+
+[claude]
+model = "sonnet"
+disallowed_tools = ["Write", "Edit"]

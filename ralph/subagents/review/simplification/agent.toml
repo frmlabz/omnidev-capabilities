@@ -1,0 +1,6 @@
+name = "review-simplification"
+description = "Code simplification reviewer that identifies over-engineering, unnecessary abstractions, and dead code."
+
+[claude]
+model = "opus"
+disallowed_tools = ["Write", "Edit"]

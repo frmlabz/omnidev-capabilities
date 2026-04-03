@@ -1,0 +1,6 @@
+name = "researcher"
+description = "External Documentation & Reference Researcher (Sonnet)"
+
+[claude]
+model = "sonnet"
+disallowed_tools = ["Write", "Edit"]
