@@ -125,15 +125,46 @@ PRDs move through three states:
 ### Automatic Transitions
 
 1. **Start PRD** → PRD moves from `pending` to `in_progress`
-2. **All stories complete** → Findings extracted → **Code review pipeline runs** (unless the PRD came back from testing after a failure) → PRD moves to `testing`, verification.md auto-generated with documentation checks
-3. **Tests pass (PRD_VERIFIED)** → Final documentation safety-net runs → Uncommitted changes auto-committed → PRD moves to `completed`, findings extracted
-4. **Tests fail (PRD_FAILED)** → Fix story created, PRD moves back to `in_progress`
+2. **Story marked complete by dev agent** → **Per-story verifier runs** (if enabled) → on PASS the story stays completed; on FAIL it is reverted to `in_progress` once with failed ACs as questions, then blocked on a second FAIL
+3. **All stories complete** → Findings extracted → **Code review pipeline runs** (unless the PRD came back from testing after a failure) → PRD moves to `testing`, verification.md auto-generated with documentation checks
+4. **Tests pass (PRD_VERIFIED)** → Final documentation safety-net runs → Uncommitted changes auto-committed → PRD moves to `completed`, findings extracted
+5. **Tests fail (PRD_FAILED)** → Fix story created, PRD moves back to `in_progress`
 
 ## Documentation Is Part Of Done
 
 Documentation is not just a cleanup step at the end. When a PRD changes behavior, APIs, commands, configuration, UI flows, or developer workflows, Ralph expects the relevant files under `docs/**/*.md` to be updated as part of implementation.
 
 New PRDs should explicitly assess documentation impact and usually include a final documentation story when docs are affected. Verification and testing should also check that required docs were updated before a PRD can be considered verified.
+
+## Per-Story Verification
+
+After the dev agent signals a story complete, Ralph runs a cheap checklist auditor (`story-verifier` subagent) against that story's git diff and acceptance criteria. This catches "I'm done" misses at the smallest scope possible, before the story gets folded into the PRD-level review.
+
+### How it works
+
+1. When a story first transitions `pending → in_progress`, Ralph records the current `HEAD` SHA on the story as `startCommit`.
+2. When the story is marked complete, Ralph computes `git diff <startCommit>..HEAD` (truncated at 3000 chars), feeds it plus the acceptance criteria to the verifier agent, and parses its structured output.
+3. The verifier emits a per-AC verdict (`met` / `partial` / `unmet`) and one overall `PASS` or `FAIL`. A single non-`met` AC forces FAIL.
+4. On FAIL, Ralph reverts the story to `in_progress`, appends the failed ACs as questions, and lets the dev agent retry once. A second FAIL blocks the story.
+
+The verifier is a checklist auditor, not a code reviewer — it does not comment on style, design, or test coverage. Its only job is to answer, for each AC: did the diff deliver it?
+
+### Configuration
+
+```toml
+[ralph]
+# Enable per-story verification (default: true)
+per_story_verification = true
+
+# Agent for the verifier (default: "" — falls back to default_agent). The bundled
+# `story-verifier` subagent sets the system prompt; this config only controls which
+# LLM runtime spawns it.
+story_verifier_agent = ""
+```
+
+Fallback chain: `story_verifier_agent` → `default_agent`.
+
+Stories created before per-story verification existed (no `startCommit`) are skipped — the verifier returns `pass=true` with `skipped=true` so legacy data continues through the normal flow.
 
 ## Code Review Pipeline
 
@@ -253,6 +284,16 @@ args = ["-y", "@openai/codex", "exec", "-c", "shell_environment_policy.inherit=a
 
 The external tool receives a simplified review prompt with the git diff and acceptance criteria. Its output is parsed with the same severity format and aggregated with the internal reviewers before the fix step.
 
+### Grilling (PRD/Spec Cross-Examination)
+
+Grilling is an **opt-in behavior of the `/prd` skill**, not a config flag. When a PRD request mentions "grill" (e.g. "grill this PRD", "write a PRD and grill it"), the skill runs adversarial cross-examination during spec review (step 5) and PRD review (step 9) between the internal reviewer and the external `review_agent`. Each side sees the other's findings and must either **DEFEND** its own (with reasoning) or **WITHDRAW**, and for each opposing finding either **CONCEDE** or **CHALLENGE**. Findings are then classified as:
+
+- **Confirmed** — author defended, opponent conceded or did not challenge. Present to user as a normal finding.
+- **Contested** — author defended, opponent challenged. Present to user with both sides' reasoning; user decides.
+- **Withdrawn** — author withdrew. Dropped from the actionable list; shown collapsed for transparency.
+
+Requires `[ralph.review].review_agent` to be set. If grilling is requested but no external reviewer is configured, the skill tells you and continues with a single-pass internal review instead. No levels, no persisted flag — say it when you want it, omit it when you don't.
+
 ### Review Results
 
 Review results are saved to `<state-dir>/prds/<status>/<prd-name>/review-results/`:
@@ -346,6 +387,8 @@ project_name = "my-app"       # Required. Slug format: lowercase, hyphens, no le
 default_agent = "claude"
 default_iterations = 10
 # verification_agent = "claude-opus"  # Optional. Agent for verification generation (default: default_agent)
+# per_story_verification = true       # Optional. Run checklist auditor after each story (default: true)
+# story_verifier_agent = ""           # Optional. Agent for per-story verifier (default: default_agent)
 
 [ralph.testing]
 # Quality checks the agent must run

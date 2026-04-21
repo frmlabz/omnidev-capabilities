@@ -20,6 +20,8 @@ import {
 	getTestingConfig,
 	getReviewConfig,
 	resolveReviewAgents,
+	getStoryVerificationConfig,
+	resolveStoryVerifierAgent,
 } from "../core/config.js";
 import { type Logger, getLogger } from "../core/logger.js";
 import { type AgentExecutor, getAgentExecutor } from "./agent-runner.js";
@@ -41,6 +43,7 @@ import {
 } from "../verification.js";
 import { extractAndSaveFindings } from "../state.js";
 import { ReviewEngine } from "./review-engine.js";
+import { captureCurrentCommit, verifyStory, failedAcsToQuestions } from "./story-verifier.js";
 
 /**
  * Engine context - dependencies injected into the engine
@@ -78,7 +81,16 @@ export type EngineEvent =
 	| { type: "review_start"; phase: "first" | "external" | "second" | "finalize" }
 	| { type: "review_agent_complete"; reviewType: string; decision: string; findingsCount: number }
 	| { type: "review_fix_start"; iteration: number; findingsCount: number }
-	| { type: "review_phase_complete"; phase: string; clean: boolean };
+	| { type: "review_phase_complete"; phase: string; clean: boolean }
+	| { type: "story_verification_start"; prdName: string; storyId: string }
+	| {
+			type: "story_verification_complete";
+			prdName: string;
+			storyId: string;
+			pass: boolean;
+			failedCount: number;
+			skipped: boolean;
+	  };
 
 /**
  * Options for running orchestration
@@ -198,6 +210,21 @@ export class OrchestrationEngine {
 		const agentConfig = agentConfigResult.data!;
 		const maxIterations = config.default_iterations;
 
+		// Resolve per-story verifier (optional). When disabled, runs are unchanged.
+		const storyVerification = getStoryVerificationConfig(config);
+		let storyVerifierAgent: AgentConfig | null = null;
+		if (storyVerification.enabled) {
+			const resolved = resolveStoryVerifierAgent(config);
+			if (!resolved.ok) {
+				log(
+					"warn",
+					`Per-story verification is enabled but agent could not be resolved: ${resolved.error!.message}. Disabling for this run.`,
+				);
+			} else {
+				storyVerifierAgent = resolved.data!;
+			}
+		}
+
 		log("info", `Starting orchestration for PRD: ${prdName} (cwd: ${process.cwd()})`);
 		const cwdCheck = this.validateWorkingDirectory(prdName, log);
 		if (!cwdCheck.ok) {
@@ -308,12 +335,20 @@ export class OrchestrationEngine {
 				});
 			}
 
-			// Mark in progress and update iteration count
+			// Mark in progress and update iteration count.
+			// Capture the start commit on the first transition so the per-story verifier
+			// can diff just this story's work; verifier-reject retries reuse the original.
 			await this.ctx.store.update(prdName, (p) => {
 				const s = p.stories.find((st) => st.id === story.id);
 				if (s) {
 					s.status = "in_progress";
 					s.iterationCount = iterationCount;
+					if (!s.startCommit) {
+						const sha = captureCurrentCommit(this.ctx.repoRoot);
+						if (sha) {
+							s.startCommit = sha;
+						}
+					}
 				}
 				return p;
 			});
@@ -349,32 +384,11 @@ export class OrchestrationEngine {
 				await this.ctx.store.updateMetrics(prdName, tokenUsage);
 			}
 
-			// Check completion signal
-			if (this.ctx.agentExecutor.hasCompletionSignal(result.output)) {
-				log("info", "Agent signaled completion");
-
-				const isCompleteResult = await this.ctx.store.isComplete(prdName);
-				if (isCompleteResult.ok && isCompleteResult.data) {
-					await this.handleDevelopmentComplete(prdName, prd, agentConfig, emit, signal);
-
-					return ok({
-						prdName,
-						outcome: "moved_to_testing",
-						message: "PRD moved to testing",
-						storiesCompleted: prd.stories.length,
-						storiesRemaining: 0,
-					});
-				}
-			}
-
-			// Check story status after agent run
+			// Determine this story's status after the agent run
 			const updatedPrd = (await this.ctx.store.get(prdName)).data!;
 			const updatedStory = updatedPrd.stories.find((s) => s.id === story.id);
 
-			if (updatedStory?.status === "completed") {
-				log("info", `Story ${story.id} completed`);
-				emit({ type: "story_update", prdName, storyId: story.id, status: "completed" });
-			} else if (updatedStory?.status === "blocked") {
+			if (updatedStory?.status === "blocked") {
 				log("warn", `Story ${story.id} blocked`);
 				emit({ type: "story_update", prdName, storyId: story.id, status: "blocked" });
 				emit({
@@ -390,19 +404,119 @@ export class OrchestrationEngine {
 					storiesCompleted: updatedPrd.stories.filter((s) => s.status === "completed").length,
 					storiesRemaining: updatedPrd.stories.filter((s) => s.status !== "completed").length,
 				});
-			} else {
-				// Try to infer status from output
+			}
+
+			let storyMarkedComplete = updatedStory?.status === "completed";
+			if (!storyMarkedComplete) {
 				const inferredStatus = this.ctx.agentExecutor.parseStatus(result.output, story.id);
 				if (inferredStatus === "completed") {
 					log("info", `Inferred story ${story.id} completed from output`);
 					await this.ctx.store.updateStoryStatus(prdName, story.id, "completed");
-					emit({ type: "story_update", prdName, storyId: story.id, status: "completed" });
+					storyMarkedComplete = true;
 				} else if (inferredStatus === "blocked") {
 					log("info", `Inferred story ${story.id} blocked from output`);
 					await this.ctx.store.updateStoryStatus(prdName, story.id, "blocked", [
 						"Agent indicated this story is blocked. Please review the output for details.",
 					]);
 					emit({ type: "story_update", prdName, storyId: story.id, status: "blocked" });
+				}
+			}
+
+			if (storyMarkedComplete) {
+				// Per-story verifier: check the diff against the story's acceptance criteria
+				// before accepting completion. One retry, then block.
+				if (storyVerifierAgent) {
+					const latestStory = (await this.ctx.store.get(prdName)).data!.stories.find(
+						(s) => s.id === story.id,
+					)!;
+					emit({ type: "story_verification_start", prdName, storyId: story.id });
+					const outcome = await verifyStory({
+						story: latestStory,
+						repoRoot: this.ctx.repoRoot,
+						agentConfig: storyVerifierAgent,
+						agentExecutor: this.ctx.agentExecutor,
+						signal,
+					});
+					emit({
+						type: "story_verification_complete",
+						prdName,
+						storyId: story.id,
+						pass: outcome.pass,
+						failedCount: outcome.failedAcs.length,
+						skipped: !!outcome.skipped,
+					});
+
+					if (!outcome.pass) {
+						const attempts = latestStory.verificationAttempts ?? 0;
+						const newQuestions = failedAcsToQuestions(latestStory, outcome.failedAcs);
+						const summary = outcome.failedAcs.map((fa) => `${fa.status} AC ${fa.id}`).join(", ");
+
+						if (attempts >= 1) {
+							log(
+								"warn",
+								`Story ${story.id} blocked: verification failed after retry (${summary})`,
+							);
+							await this.ctx.store.update(prdName, (p) => {
+								const s = p.stories.find((st) => st.id === story.id);
+								if (s) {
+									s.status = "blocked";
+									s.questions = [...(s.questions ?? []), ...newQuestions];
+								}
+								return p;
+							});
+							emit({ type: "story_update", prdName, storyId: story.id, status: "blocked" });
+							emit({
+								type: "complete",
+								result: "blocked",
+								message: `Story ${story.id} verification failed after retry`,
+							});
+
+							const finalPrd = (await this.ctx.store.get(prdName)).data!;
+							return ok({
+								prdName,
+								outcome: "blocked",
+								message: `Story ${story.id} verification failed after retry: ${summary}`,
+								storiesCompleted: finalPrd.stories.filter((s) => s.status === "completed").length,
+								storiesRemaining: finalPrd.stories.filter((s) => s.status !== "completed").length,
+							});
+						}
+
+						log(
+							"warn",
+							`Story ${story.id} failed verification (${summary}), reverting to in_progress for retry`,
+						);
+						await this.ctx.store.update(prdName, (p) => {
+							const s = p.stories.find((st) => st.id === story.id);
+							if (s) {
+								s.status = "in_progress";
+								s.verificationAttempts = attempts + 1;
+								s.questions = [...(s.questions ?? []), ...newQuestions];
+							}
+							return p;
+						});
+						emit({ type: "story_update", prdName, storyId: story.id, status: "in_progress" });
+						continue;
+					}
+				}
+
+				log("info", `Story ${story.id} completed`);
+				emit({ type: "story_update", prdName, storyId: story.id, status: "completed" });
+
+				// Moving to testing requires BOTH the agent's completion signal AND all stories done
+				if (this.ctx.agentExecutor.hasCompletionSignal(result.output)) {
+					const isCompleteResult = await this.ctx.store.isComplete(prdName);
+					if (isCompleteResult.ok && isCompleteResult.data) {
+						log("info", "Agent signaled completion and all stories are done");
+						await this.handleDevelopmentComplete(prdName, prd, agentConfig, emit, signal);
+
+						return ok({
+							prdName,
+							outcome: "moved_to_testing",
+							message: "PRD moved to testing",
+							storiesCompleted: prd.stories.length,
+							storiesRemaining: 0,
+						});
+					}
 				}
 			}
 		}

@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 — 2026-04-21
 
 ### Added
 
+- **Per-story verification** — After the dev agent signals a story complete, Ralph runs a cheap checklist auditor (`story-verifier` subagent) against that story's git diff and acceptance criteria. One FAIL reverts the story to `in_progress` with the failed ACs appended as questions; a second FAIL blocks it. Controlled by top-level `per_story_verification` (default `true`) and `story_verifier_agent` (falls back to `default_agent`) under `[ralph]`. New `Story.startCommit` and `Story.verificationAttempts` fields persist per-story verifier state. Emits two new engine events: `story_verification_start` and `story_verification_complete`.
+- **Grilling (PRD/spec cross-examination)** — Opt-in adversarial debate between internal `spec-reviewer`/`prd-reviewer` subagents and the external `review_agent` (codex) during `/prd` skill execution. Triggered by the user mentioning "grill" in the PRD request (e.g. "grill this PRD") — there is no config flag. Each side sees the other's findings and must DEFEND/WITHDRAW its own or CONCEDE/CHALLENGE the opponent's; findings are classified as confirmed, contested, or withdrawn. Requires `[ralph.review].review_agent` to be set; otherwise the skill warns and continues with a single-pass internal review. Consumed by the `/prd` skill only — the code review pipeline is unaffected.
 - **Aggregated review pass + review TODO file** — The first review pass now aggregates all specialized reviewers plus the optional external reviewer before triggering fixes, reducing serial review churn. New `[ralph.review].todo_file` lets Ralph persist non-blocking review findings to a markdown TODO file so follow-ups and suggestions do not get lost.
 - **Auto-commit after PRD verification** — When a PRD is verified, the engine now spawns the default agent to commit any uncommitted changes (documentation updates, config, etc.) using the ralph commit format. Best-effort — failures log a warning and do not block completion.
 - **Swarm merge agent config** — New `merge_agent` field under `[ralph.swarm]` allows routing merge operations to a specific agent. Resolution: `--agent` flag → `swarm.merge_agent` → `default_agent`. Existing configs with no new fields produce identical behavior.

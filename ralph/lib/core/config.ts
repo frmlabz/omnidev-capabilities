@@ -34,6 +34,8 @@ interface RawTomlConfig {
 		default_agent?: string;
 		default_iterations?: number;
 		verification_agent?: string;
+		per_story_verification?: boolean;
+		story_verifier_agent?: string;
 		agents?: Record<string, RawAgentConfig>;
 		testing?: RawTestingConfig;
 		scripts?: RawScriptsConfig;
@@ -121,6 +123,12 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 	}
 	if (ralph.verification_agent) {
 		config.verification_agent = ralph.verification_agent;
+	}
+	if (ralph.per_story_verification !== undefined) {
+		config.per_story_verification = ralph.per_story_verification;
+	}
+	if (ralph.story_verifier_agent) {
+		config.story_verifier_agent = ralph.story_verifier_agent;
 	}
 
 	// Agents
@@ -386,6 +394,30 @@ export function getTestingConfig(config: RalphConfig): TestingConfig {
  */
 export function getScriptsConfig(config: RalphConfig): ScriptsConfig {
 	return config.scripts ?? {};
+}
+
+/**
+ * Per-story verification settings with defaults filled in.
+ */
+export interface StoryVerificationConfig {
+	enabled: boolean;
+	agentName: string;
+}
+
+export function getStoryVerificationConfig(config: RalphConfig): StoryVerificationConfig {
+	return {
+		enabled: config.per_story_verification ?? true,
+		agentName: config.story_verifier_agent ?? "",
+	};
+}
+
+/**
+ * Resolve the agent used by the per-story verifier.
+ * Falls back to the default agent when story_verifier_agent is not set.
+ */
+export function resolveStoryVerifierAgent(config: RalphConfig): Result<AgentConfig> {
+	const name = config.story_verifier_agent || config.default_agent;
+	return getAgentConfig(config, name);
 }
 
 /**

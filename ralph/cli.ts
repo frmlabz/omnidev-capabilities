@@ -94,6 +94,20 @@ function consoleEventHandler(event: EngineEvent): void {
 		case "review_phase_complete":
 			console.log(`Review phase ${event.phase} complete${event.clean ? " (clean)" : ""}`);
 			break;
+		case "story_verification_start":
+			console.log(`Verifying story ${event.storyId}...`);
+			break;
+		case "story_verification_complete":
+			if (event.skipped) {
+				console.log(`Verifier skipped story ${event.storyId} (no start commit recorded)`);
+			} else if (event.pass) {
+				console.log(`✓ Story ${event.storyId} passed verification`);
+			} else {
+				console.log(
+					`✗ Story ${event.storyId} failed verification (${event.failedCount} unmet/partial AC${event.failedCount === 1 ? "" : "s"})`,
+				);
+			}
+			break;
 		case "test_complete":
 			if (event.result === "verified") console.log("\n✅ PRD_VERIFIED!");
 			else if (event.result === "failed") {

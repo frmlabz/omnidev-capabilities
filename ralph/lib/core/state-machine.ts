@@ -27,13 +27,13 @@ const PRD_TRANSITIONS: Record<PRDStatus, PRDStatus[]> = {
  * pending -> in_progress (start work)
  * in_progress -> completed (work done) | blocked (needs input) | pending (reset)
  * blocked -> pending (unblocked)
- * completed -> (terminal state)
+ * completed -> in_progress (per-story verifier rejected, story must be re-worked)
  */
 const STORY_TRANSITIONS: Record<StoryStatus, StoryStatus[]> = {
 	pending: ["in_progress"],
 	in_progress: ["completed", "blocked", "pending"],
 	blocked: ["pending"],
-	completed: [],
+	completed: ["in_progress"],
 };
 
 /**

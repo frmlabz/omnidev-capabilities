@@ -38,6 +38,17 @@ export interface Story {
 	answers?: string[];
 	/** Number of iterations attempted for this story (used to detect stuck stories) */
 	iterationCount?: number;
+	/**
+	 * Git commit SHA captured when the story first transitioned pending → in_progress.
+	 * Used by the per-story verifier to compute the diff of work done on this story.
+	 * Absent for stories created before per-story verification was introduced.
+	 */
+	startCommit?: string;
+	/**
+	 * How many times the per-story verifier has rejected this story. 0 or absent = never.
+	 * After the single retry budget is exhausted the engine blocks the story.
+	 */
+	verificationAttempts?: number;
 }
 
 /**
@@ -259,6 +270,18 @@ export interface RalphConfig {
 	docs?: DocsConfig;
 	/** Agent name for verification generation. Falls back to default_agent. */
 	verification_agent?: string;
+	/**
+	 * Whether to run the per-story verifier after each story is marked completed
+	 * by the dev agent. When a story fails verification, it gets one retry and
+	 * is blocked after a second failure. Default: true.
+	 */
+	per_story_verification?: boolean;
+	/**
+	 * Agent name from [ralph.agents.*] for the per-story verifier.
+	 * Falls back to default_agent. The verifier is a checklist task, so a cheap
+	 * fast model (e.g. Haiku) is typically appropriate.
+	 */
+	story_verifier_agent?: string;
 	/** Review configuration */
 	review?: ReviewConfig;
 	/** Swarm configuration for parallel PRD execution */

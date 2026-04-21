@@ -114,7 +114,10 @@ export {
 	getReviewConfig,
 	getSwarmConfig,
 	resolveReviewAgents,
+	getStoryVerificationConfig,
+	resolveStoryVerifierAgent,
 	type ResolvedReviewAgents,
+	type StoryVerificationConfig,
 } from "./core/config.js";
 
 // Core - Logger
@@ -192,6 +195,20 @@ export {
 
 // Orchestration - Review Engine
 export { ReviewEngine } from "./orchestration/review-engine.js";
+
+// Orchestration - Story Verifier
+export {
+	MAX_DIFF_CHARS as STORY_VERIFIER_MAX_DIFF_CHARS,
+	captureCurrentCommit,
+	failedAcsToQuestions,
+	generateVerifierPrompt,
+	getStoryDiff,
+	parseVerifierOutput,
+	verifyStory,
+	type FailedAc,
+	type VerificationOutcome,
+	type VerifyStoryParams,
+} from "./orchestration/story-verifier.js";
 
 // Prompt generation
 export { generateFindingsExtractionPrompt, generatePrompt } from "./prompt.js";

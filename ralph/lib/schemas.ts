@@ -29,6 +29,8 @@ export const StorySchema = z.object({
 	questions: z.array(z.string()).default([]),
 	answers: z.array(z.string()).optional(),
 	iterationCount: z.number().int().min(0).optional(),
+	startCommit: z.string().optional(),
+	verificationAttempts: z.number().int().min(0).optional(),
 });
 
 /**
@@ -151,6 +153,8 @@ export const RalphConfigSchema = z.object({
 	default_iterations: z.number().int().min(1),
 	agents: z.record(z.string(), AgentConfigSchema),
 	verification_agent: z.string().optional(),
+	per_story_verification: z.boolean().optional(),
+	story_verifier_agent: z.string().optional(),
 	testing: TestingConfigSchema.optional(),
 	scripts: ScriptsConfigSchema.optional(),
 	docs: DocsConfigSchema.optional(),

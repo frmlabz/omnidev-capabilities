@@ -41,9 +41,10 @@ ralph/
 │   │   ├── worktree.ts   # Git worktree operations
 │   │   └── session-tmux.ts   # TmuxSessionBackend implementation
 │   └── orchestration/
-│       ├── engine.ts     # OrchestrationEngine class (main loop)
+│       ├── engine.ts         # OrchestrationEngine class (main loop)
 │       ├── agent-runner.ts   # AgentExecutor class (spawns agents)
-│       └── review-engine.ts  # ReviewEngine class (multi-phase review pipeline)
+│       ├── review-engine.ts  # ReviewEngine class (multi-phase review pipeline)
+│       └── story-verifier.ts # Per-story checklist auditor (diff + ACs → PASS/FAIL)
 ├── subagents/                    # agent.toml + prompt.md format
 │   ├── architect/            # Opus, read-only, strategic analysis
 │   ├── code-reviewer/        # Opus, read-only, two-stage review
@@ -51,6 +52,7 @@ ralph/
 │   ├── prd-reviewer/         # Sonnet, read-only, PRD review (spec + stories)
 │   ├── spec-reviewer/        # Sonnet, read-only, spec-only review (pre-stories)
 │   ├── researcher/           # Sonnet, read-only, external docs
+│   ├── story-verifier/       # Haiku, read-only, per-story AC checklist auditor
 │   └── review/               # Review pipeline agents
 │       ├── quality/          # Sonnet, bugs/security/error handling
 │       ├── implementation/   # Opus, spec compliance
@@ -71,6 +73,7 @@ ralph/
 | Iteration logic | lib/orchestration/engine.ts | OrchestrationEngine.runDevelopment() |
 | Review pipeline | lib/orchestration/review-engine.ts | ReviewEngine.runReview(), 4-phase pipeline |
 | Review prompts | lib/review-prompt.ts | generateReviewPrompt, parseReviewResult, etc. |
+| Per-story verifier | lib/orchestration/story-verifier.ts | verifyStory(), parseVerifierOutput(), 1-retry budget in engine |
 | PRD CRUD | lib/core/prd-store.ts | PRDStore class with Zod validation |
 | State management | lib/state.ts | Legacy functions (backward compat) |
 | Progress tracking | lib/state.ts | appendProgress, getProgress |

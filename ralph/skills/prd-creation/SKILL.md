@@ -19,6 +19,19 @@ Create structured PRDs for Ralph orchestration to enable AI-driven development.
 - User wants to start implementation (use `omnidev ralph start`)
 </Do_Not_Use_When>
 
+## Grilling Mode
+
+**Opt-in, per invocation.** If the user's PRD request mentions "grill" (e.g. "grill this PRD", "grill the spec", "write a PRD and grill it"), enable **grilling mode** for the whole session. Otherwise it's off.
+
+When grilling mode is **on**:
+- Step 5 runs the spec cross-examine loop between `spec-reviewer` and the external `review_agent`.
+- Step 9 runs the PRD cross-examine loop between `prd-reviewer` and the external `review_agent`.
+- Both require `[ralph.review].review_agent` to be configured. If it is not, tell the user grilling was requested but no external reviewer is configured, then continue with internal reviewers only.
+
+When grilling mode is **off**: skip the cross-examine steps entirely. The single-pass internal + optional external review still runs as normal.
+
+There is no config flag. The trigger is the user's words.
+
 ## The Job
 
 When a user requests a PRD:
@@ -161,11 +174,30 @@ The prompt should ask the external tool to review the spec for clarity, complete
 
 If `review_agent` is empty or not configured, skip this step.
 
-#### 5c. Present consolidated findings
+#### 5c. Cross-examine (grilling mode only)
+
+Run this step **only when all three hold**: grilling mode is on (see "Grilling Mode" at the top), `review_agent` is non-empty, and at least one reviewer produced findings. Otherwise skip to 5d.
+
+The purpose is adversarial pressure: each side must defend its own findings and grade the opponent's.
+
+1. **Internal cross-exam.** Re-invoke `spec-reviewer` via the Task tool with a cross-examine prompt:
+   - Attach its own previous findings AND the external reviewer's findings
+   - Ask it to produce, for each of its own findings, one of: `DEFEND` (with reasoning) or `WITHDRAW` (with reason)
+   - Ask it to produce, for each external finding, one of: `CONCEDE` (agree, spec should change) or `CHALLENGE` (disagree, with reasoning)
+2. **External cross-exam.** Invoke the external `review_agent` via Bash with the mirrored prompt — its own findings + spec-reviewer's findings, same DEFEND/WITHDRAW/CONCEDE/CHALLENGE contract.
+3. **Classify each finding:**
+   - `withdrawn` — the author withdrew it (drop from user-facing list entirely, except in a collapsed "Withdrawn" section for transparency)
+   - `confirmed` — the author defended AND the opponent conceded, OR the opponent did not challenge it at all
+   - `contested` — the author defended AND the opponent challenged. Attach both reasoning snippets.
+
+Do not invent a new severity tier — `contested` is an orthogonal dimension to CRITICAL/MAJOR/MINOR. Preserve the original severity when presenting.
+
+#### 5d. Present consolidated findings
 
 Combine findings from all reviewers and present to the user using AskUserQuestion:
 
 - Group issues by severity (CRITICAL, MAJOR, MINOR)
+- When grilling mode ran, split each severity into **Confirmed** and **Contested** subsections. Show both sides' reasoning for contested items. Show a collapsed **Withdrawn** list at the bottom.
 - Include any questions from the reviewers
 - Ask the user: **Address the issues, or approve the spec as-is?**
 
@@ -271,6 +303,8 @@ Started: [Date]
 ### 9. Run PRD Review (Automatic)
 
 After writing prd.json, immediately run the `prd-reviewer` agent. This reviewer checks the complete PRD (spec.md + prd.json together) for structural quality and goal alignment — story ordering, dependency chains, sizing, and acceptance criteria testability.
+
+**If grilling mode is on AND `review_agent` is non-empty**, also run the external reviewer against the combined spec.md + prd.json, then cross-examine using the same protocol as step 5c (DEFEND / WITHDRAW / CONCEDE / CHALLENGE → classify into confirmed / contested / withdrawn). Present contested findings to the user with both sides' reasoning. If grilling mode is off, the external reviewer is not invoked at this step.
 
 The reviewer returns a verdict:
 
