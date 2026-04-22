@@ -6,7 +6,7 @@ import assert from "node:assert";
 import { mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it } from "bun:test";
 import { generatePrompt, getStatusDir, ensureDirectories } from "./lib/index.js";
 import type { PRD, Story } from "./lib/types.js";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
@@ -16,8 +16,30 @@ const REPO_ROOT = "/test-repo";
 let testDir: string;
 let originalXdg: string | undefined;
 
+/**
+ * Write a story markdown file under prdDir/stories/<id>.md with the given
+ * acceptance criteria. Returns the relative promptPath.
+ */
+async function writeStoryFile(
+	prdDir: string,
+	story: Story,
+	acceptanceCriteria: string[] = [],
+): Promise<void> {
+	const abs = join(prdDir, story.promptPath);
+	mkdirSync(join(prdDir, "stories"), { recursive: true });
+	const acBlock = acceptanceCriteria.length
+		? acceptanceCriteria.map((ac) => `  - ${ac}`).join("\n")
+		: "  - (none)";
+	const content = `# ${story.id}: ${story.title}
+
+## Acceptance Criteria
+${acBlock}
+`;
+	await writeFile(abs, content);
+}
+
 // Helper to create a PRD directly
-async function createTestPRD(name: string, prd: Partial<PRD> = {}): Promise<void> {
+async function createTestPRD(name: string, prd: Partial<PRD> = {}): Promise<string> {
 	const prdDir = join(getStatusDir(PROJECT_NAME, REPO_ROOT, "pending"), name);
 	mkdirSync(prdDir, { recursive: true });
 
@@ -35,6 +57,8 @@ async function createTestPRD(name: string, prd: Partial<PRD> = {}): Promise<void
 		"## Codebase Patterns\n\n---\n\n## Progress Log\n\n",
 	);
 	await writeFile(join(prdDir, "spec.md"), "# Test Spec\n\nTest specification content");
+
+	return prdDir;
 }
 
 beforeEach(() => {
@@ -64,13 +88,14 @@ it("generates prompt with PRD context", async () => {
 	const story: Story = {
 		id: "US-001",
 		title: "Test Story",
-		acceptanceCriteria: ["Feature works", "Tests pass"],
+		promptPath: "stories/US-001.md",
 		status: "pending",
 		priority: 1,
 		questions: [],
 	};
 
-	await createTestPRD("test-project", prd);
+	const prdDir = await createTestPRD("test-project", prd);
+	await writeStoryFile(prdDir, story, ["Feature works", "Tests pass"]);
 
 	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "test-project");
 
@@ -82,7 +107,7 @@ it("generates prompt with PRD context", async () => {
 	assert.ok(prompt.includes("Tests pass"));
 });
 
-it("includes spec content", async () => {
+it("references the spec file path in the prompt header", async () => {
 	const prd: PRD = {
 		name: "spec-test",
 		description: "Test",
@@ -93,18 +118,18 @@ it("includes spec content", async () => {
 	const story: Story = {
 		id: "US-002",
 		title: "Story",
-		acceptanceCriteria: [],
+		promptPath: "stories/US-002.md",
 		status: "pending",
 		priority: 1,
 		questions: [],
 	};
 
-	await createTestPRD("spec-test", prd);
+	const prdDir = await createTestPRD("spec-test", prd);
+	await writeStoryFile(prdDir, story);
 
 	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "spec-test");
 
-	assert.ok(prompt.includes("Test Spec"));
-	assert.ok(prompt.includes("Test specification content"));
+	assert.ok(prompt.includes("spec.md"));
 });
 
 it("includes recent progress", async () => {
@@ -118,13 +143,14 @@ it("includes recent progress", async () => {
 	const story: Story = {
 		id: "US-002",
 		title: "Story",
-		acceptanceCriteria: [],
+		promptPath: "stories/US-002.md",
 		status: "pending",
 		priority: 1,
 		questions: [],
 	};
 
-	await createTestPRD("progress-test", prd);
+	const prdDir = await createTestPRD("progress-test", prd);
+	await writeStoryFile(prdDir, story);
 
 	// Add progress
 	const { appendProgress } = await import("./lib/index.js");
@@ -141,7 +167,7 @@ it("includes recent progress", async () => {
 	assert.ok(prompt.includes("Did something"));
 });
 
-it("includes codebase patterns", async () => {
+it("includes story file content verbatim", async () => {
 	const prd: PRD = {
 		name: "patterns-test",
 		description: "Test",
@@ -152,27 +178,28 @@ it("includes codebase patterns", async () => {
 	const story: Story = {
 		id: "US-003",
 		title: "Story",
-		acceptanceCriteria: [],
+		promptPath: "stories/US-003.md",
 		status: "pending",
 		priority: 1,
 		questions: [],
 	};
 
-	await createTestPRD("patterns-test", prd);
-	const prdDir = join(getStatusDir(PROJECT_NAME, REPO_ROOT, "pending"), "patterns-test");
-	const progressPath = join(prdDir, "progress.txt");
+	const prdDir = await createTestPRD("patterns-test", prd);
+	const storyPath = join(prdDir, story.promptPath);
+	mkdirSync(join(prdDir, "stories"), { recursive: true });
 	await writeFile(
-		progressPath,
-		"## Codebase Patterns\n- Use writeFile()\n- Use strict types\n\n---\n\n## Progress Log\n",
+		storyPath,
+		"# US-003\n\n## Scope\nCustom scope section.\n\n## Acceptance Criteria\n- Uses writeFile()\n- Uses strict types\n",
 	);
 
 	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "patterns-test");
 
-	assert.ok(prompt.includes("Use writeFile()"));
-	assert.ok(prompt.includes("Use strict types"));
+	assert.ok(prompt.includes("Custom scope section."));
+	assert.ok(prompt.includes("Uses writeFile()"));
+	assert.ok(prompt.includes("Uses strict types"));
 });
 
-it("handles empty patterns gracefully", async () => {
+it("handles empty progress gracefully", async () => {
 	const prd: PRD = {
 		name: "no-patterns",
 		description: "Test",
@@ -183,20 +210,25 @@ it("handles empty patterns gracefully", async () => {
 	const story: Story = {
 		id: "US-004",
 		title: "Story",
-		acceptanceCriteria: [],
+		promptPath: "stories/US-004.md",
 		status: "pending",
 		priority: 1,
 		questions: [],
 	};
 
-	await createTestPRD("no-patterns", prd);
+	const prdDir = await createTestPRD("no-patterns", prd);
+	await writeStoryFile(prdDir, story);
+
+	// Overwrite progress.txt to be empty so the prompt uses the fallback text.
+	const progressPath = join(prdDir, "progress.txt");
+	await writeFile(progressPath, "");
 
 	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "no-patterns");
 
-	assert.ok(prompt.includes("None yet"));
+	assert.ok(prompt.includes("(no progress yet)"));
 });
 
-it("formats acceptance criteria as bullet list", async () => {
+it("formats acceptance criteria from the story file", async () => {
 	const prd: PRD = {
 		name: "criteria-test",
 		description: "Test",
@@ -207,18 +239,19 @@ it("formats acceptance criteria as bullet list", async () => {
 	const story: Story = {
 		id: "US-005",
 		title: "Story",
-		acceptanceCriteria: ["First criterion", "Second criterion"],
+		promptPath: "stories/US-005.md",
 		status: "pending",
 		priority: 1,
 		questions: [],
 	};
 
-	await createTestPRD("criteria-test", prd);
+	const prdDir = await createTestPRD("criteria-test", prd);
+	await writeStoryFile(prdDir, story, ["First criterion", "Second criterion"]);
 
 	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "criteria-test");
 
-	assert.ok(prompt.includes("  - First criterion"));
-	assert.ok(prompt.includes("  - Second criterion"));
+	assert.ok(prompt.includes("First criterion"));
+	assert.ok(prompt.includes("Second criterion"));
 });
 
 it("includes other stories for context", async () => {
@@ -230,7 +263,7 @@ it("includes other stories for context", async () => {
 			{
 				id: "US-001",
 				title: "First Story",
-				acceptanceCriteria: [],
+				promptPath: "stories/US-001.md",
 				status: "completed",
 				priority: 1,
 				questions: [],
@@ -238,7 +271,7 @@ it("includes other stories for context", async () => {
 			{
 				id: "US-002",
 				title: "Second Story",
-				acceptanceCriteria: [],
+				promptPath: "stories/US-002.md",
 				status: "pending",
 				priority: 2,
 				questions: [],
@@ -249,7 +282,9 @@ it("includes other stories for context", async () => {
 	const story = prd.stories[1];
 	assert.ok(story !== undefined);
 
-	await createTestPRD("multi-story", prd);
+	const prdDir = await createTestPRD("multi-story", prd);
+	await writeStoryFile(prdDir, prd.stories[0]!);
+	await writeStoryFile(prdDir, story);
 
 	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "multi-story");
 
@@ -267,13 +302,14 @@ it("includes documentation requirements in the implementation prompt", async () 
 	const story: Story = {
 		id: "US-006",
 		title: "Documented Story",
-		acceptanceCriteria: ["Docs stay up to date"],
+		promptPath: "stories/US-006.md",
 		status: "pending",
 		priority: 1,
 		questions: [],
 	};
 
-	await createTestPRD("docs-required", prd);
+	const prdDir = await createTestPRD("docs-required", prd);
+	await writeStoryFile(prdDir, story, ["Docs stay up to date"]);
 
 	const prompt = await generatePrompt(PROJECT_NAME, REPO_ROOT, prd, story, "docs-required");
 

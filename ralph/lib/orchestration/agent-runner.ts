@@ -6,7 +6,7 @@
  */
 
 import { spawn } from "node:child_process";
-import type { AgentConfig } from "../types.js";
+import type { ProviderVariantConfig } from "../types.js";
 import type { Logger } from "../core/logger.js";
 
 /**
@@ -95,9 +95,13 @@ export class AgentExecutor {
 	/**
 	 * Run an agent with the given prompt
 	 */
-	async run(prompt: string, agentConfig: AgentConfig, options?: RunOptions): Promise<AgentResult> {
+	async run(
+		prompt: string,
+		providerVariant: ProviderVariantConfig,
+		options?: RunOptions,
+	): Promise<AgentResult> {
 		return new Promise((resolve, reject) => {
-			const proc = spawn(agentConfig.command, agentConfig.args, {
+			const proc = spawn(providerVariant.command, providerVariant.args, {
 				stdio: ["pipe", "pipe", "pipe"],
 				cwd: options?.cwd,
 			});

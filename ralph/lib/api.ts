@@ -10,7 +10,7 @@ import { findPRDLocation, getPRD, hasBlockedStories } from "./state.js";
 import {
 	type Result,
 	type StartResult,
-	type TestResult,
+	type QAStartResult,
 	type StateResult,
 	type PRDDisplayState,
 	ok,
@@ -48,7 +48,7 @@ export async function getPRDState(
 
 		const blockedStories = await hasBlockedStories(projectName, repoRoot, prdName);
 		const canStart = displayState === "pending" || displayState === "in_progress";
-		const canTest = displayState === "testing";
+		const canQA = displayState === "qa";
 		const canMerge = displayState === "completed";
 
 		return ok({
@@ -58,7 +58,7 @@ export async function getPRDState(
 			hasWorktree,
 			stories,
 			canStart: canStart && blockedStories.length === 0,
-			canTest,
+			canQA,
 			canMerge,
 		});
 	} catch (error) {
@@ -107,7 +107,7 @@ export async function startDevelopment(
 		if (event.type === "complete") {
 			switch (event.result) {
 				case "success":
-					outcome = "moved_to_testing";
+					outcome = "moved_to_qa";
 					break;
 				case "blocked":
 					outcome = "blocked";
@@ -167,15 +167,15 @@ export async function startDevelopment(
 }
 
 /**
- * Run tests for a PRD
+ * Run QA for a PRD
  * Returns structured result after completion
  */
-export async function runTests(
+export async function runQA(
 	projectName: string,
 	repoRoot: string,
 	prdName: string,
 	options: RunOptions = {},
-): Promise<Result<TestResult>> {
+): Promise<Result<QAStartResult>> {
 	const status = findPRDLocation(projectName, repoRoot, prdName);
 	if (!status) {
 		return err(ErrorCodes.PRD_NOT_FOUND, `PRD not found: ${prdName}`);
@@ -184,7 +184,7 @@ export async function runTests(
 	const orchestrator = createOrchestrator(projectName, repoRoot);
 
 	// Collect events for result
-	let outcome: TestResult["outcome"] = "unknown";
+	let outcome: QAStartResult["outcome"] = "unknown";
 	let message = "";
 	let issues: string[] = [];
 	let healthCheckFailed = false;
@@ -193,7 +193,7 @@ export async function runTests(
 	orchestrator.on("event", (event: OrchestratorEvent) => {
 		options.onEvent?.(event);
 
-		if (event.type === "test_complete") {
+		if (event.type === "qa_complete") {
 			outcome = event.result;
 			issues = event.issues ?? [];
 		} else if (event.type === "health_check_failed") {
@@ -207,7 +207,7 @@ export async function runTests(
 	});
 
 	try {
-		const result = await orchestrator.runTesting(prdName, options);
+		const result = await orchestrator.runQA(prdName, options);
 
 		// Get final state
 		const finalStatus = findPRDLocation(projectName, repoRoot, prdName) || status;
@@ -218,7 +218,7 @@ export async function runTests(
 			status: finalStatus,
 			displayState,
 			outcome: healthCheckFailed ? "health_check_failed" : outcome,
-			message: message || `Testing ${outcome}`,
+			message: message || `QA ${outcome}`,
 			issues: issues.length > 0 ? issues : undefined,
 			report: result.report,
 		});
@@ -270,8 +270,8 @@ export async function canTransition(
 	// Valid transitions
 	const validTransitions: Record<PRDDisplayState, PRDDisplayState[]> = {
 		pending: ["in_progress"],
-		in_progress: ["testing"],
-		testing: ["completed", "in_progress"],
+		in_progress: ["qa"],
+		qa: ["completed", "in_progress"],
 		completed: [],
 	};
 

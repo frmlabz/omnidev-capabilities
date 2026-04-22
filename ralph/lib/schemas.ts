@@ -7,23 +7,14 @@
 
 import { z } from "zod";
 
-/**
- * Story status enum
- */
 export const StoryStatusSchema = z.enum(["pending", "in_progress", "completed", "blocked"]);
 
-/**
- * PRD status enum
- */
-export const PRDStatusSchema = z.enum(["pending", "in_progress", "testing", "completed"]);
+export const PRDStatusSchema = z.enum(["pending", "in_progress", "qa", "completed"]);
 
-/**
- * Story schema - a chunk of work within a PRD
- */
 export const StorySchema = z.object({
 	id: z.string().min(1),
 	title: z.string().min(1),
-	acceptanceCriteria: z.array(z.string()),
+	promptPath: z.string().min(1),
 	status: StoryStatusSchema,
 	priority: z.number().int().min(1),
 	questions: z.array(z.string()).default([]),
@@ -33,9 +24,6 @@ export const StorySchema = z.object({
 	verificationAttempts: z.number().int().min(0).optional(),
 });
 
-/**
- * Last run information - captured on Ctrl+C or completion
- */
 export const LastRunSchema = z.object({
 	timestamp: z.string().datetime(),
 	storyId: z.string(),
@@ -43,9 +31,6 @@ export const LastRunSchema = z.object({
 	summary: z.string(),
 });
 
-/**
- * PRD metrics schema
- */
 export const PRDMetricsSchema = z.object({
 	totalTokens: z.number().int().min(0).optional(),
 	inputTokens: z.number().int().min(0).optional(),
@@ -53,9 +38,6 @@ export const PRDMetricsSchema = z.object({
 	iterations: z.number().int().min(0).optional(),
 });
 
-/**
- * PRD schema - Product Requirements Document
- */
 export const PRDSchema = z.object({
 	name: z.string().min(1),
 	description: z.string(),
@@ -64,34 +46,29 @@ export const PRDSchema = z.object({
 	completedAt: z.string().datetime().optional(),
 	stories: z.array(StorySchema).min(1),
 	dependencies: z.array(z.string()).optional(),
-	testsCaughtIssue: z.boolean().optional(),
+	qaCaughtIssue: z.boolean().optional(),
 	lastRun: LastRunSchema.optional(),
 	metrics: PRDMetricsSchema.optional(),
 });
 
-/**
- * Agent configuration schema
- */
-export const AgentConfigSchema = z.object({
+export const ProviderVariantConfigSchema = z.object({
 	command: z.string().min(1),
 	args: z.array(z.string()),
 });
 
-/**
- * Testing configuration schema
- */
-export const TestingConfigSchema = z.object({
+export const QAPlatformConfigSchema = z.object({
+	plugin: z.string().min(1).optional(),
+});
+
+export const QAConfigSchema = z.object({
 	project_verification_instructions: z.string().optional(),
-	test_iterations: z.number().int().min(1).optional(),
-	web_testing_enabled: z.boolean().optional(),
+	qa_iterations: z.number().int().min(1).optional(),
 	instructions: z.string().optional(),
 	health_check_timeout: z.number().int().min(1).optional(),
 	max_health_fix_attempts: z.number().int().min(1).max(10).optional(),
+	platforms: z.record(z.string(), QAPlatformConfigSchema).optional(),
 });
 
-/**
- * Scripts configuration schema
- */
 export const ScriptsConfigSchema = z.object({
 	setup: z.string().optional(),
 	start: z.string().optional(),
@@ -99,24 +76,22 @@ export const ScriptsConfigSchema = z.object({
 	teardown: z.string().optional(),
 });
 
-/**
- * Documentation configuration schema
- */
 export const DocsConfigSchema = z.object({
 	path: z.string().min(1),
 	auto_update: z.boolean().optional().default(true),
-	agent: z.string().optional(),
+	provider_variant: z.string().optional(),
 });
 
-/**
- * Review configuration schema
- */
+export const VerificationConfigSchema = z.object({
+	story_verifier_provider_variant: z.string().optional(),
+});
+
 export const ReviewConfigSchema = z.object({
 	enabled: z.boolean().optional(),
-	agent: z.string().optional(),
-	fix_agent: z.string().optional(),
-	finalize_agent: z.string().optional(),
-	review_agent: z.string().optional(),
+	provider_variant: z.string().optional(),
+	fix_provider_variant: z.string().optional(),
+	finalize_provider_variant: z.string().optional(),
+	review_provider_variant: z.string().optional(),
 	finalize_enabled: z.boolean().optional(),
 	finalize_prompt: z.string().optional(),
 	first_review_agents: z.array(z.string()).optional(),
@@ -125,21 +100,15 @@ export const ReviewConfigSchema = z.object({
 	todo_file: z.string().min(1).optional(),
 });
 
-/**
- * Swarm configuration schema
- */
 export const SwarmConfigSchema = z.object({
 	worktree_parent: z.string().optional(),
 	panes_per_window: z.number().int().min(1).max(16).optional(),
 	pane_close_timeout: z.number().int().min(0).optional(),
 	worktree_create_cmd: z.string().min(1).optional(),
 	primary_branch: z.string().min(1).optional(),
-	merge_agent: z.string().min(1).optional(),
+	merge_provider_variant: z.string().min(1).optional(),
 });
 
-/**
- * Ralph configuration schema
- */
 export const RalphConfigSchema = z.object({
 	project_name: z
 		.string()
@@ -149,36 +118,30 @@ export const RalphConfigSchema = z.object({
 			/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
 			"Must be a lowercase slug (a-z, 0-9, hyphens; no leading/trailing hyphens)",
 		),
-	default_agent: z.string().min(1),
+	default_provider_variant: z.string().min(1),
 	default_iterations: z.number().int().min(1),
-	agents: z.record(z.string(), AgentConfigSchema),
-	verification_agent: z.string().optional(),
+	provider_variants: z.record(z.string(), ProviderVariantConfigSchema),
+	verification_provider_variant: z.string().optional(),
 	per_story_verification: z.boolean().optional(),
-	story_verifier_agent: z.string().optional(),
-	testing: TestingConfigSchema.optional(),
+	verification: VerificationConfigSchema.optional(),
+	qa: QAConfigSchema.optional(),
 	scripts: ScriptsConfigSchema.optional(),
 	docs: DocsConfigSchema.optional(),
 	review: ReviewConfigSchema.optional(),
 	swarm: SwarmConfigSchema.optional(),
 });
 
-/**
- * Test result schema
- */
-export const TestResultSchema = z.object({
+export const QAResultSchema = z.object({
 	item: z.string(),
 	passed: z.boolean(),
 	reason: z.string().optional(),
 	details: z.string().optional(),
 });
 
-/**
- * Test report schema
- */
-export const TestReportSchema = z.object({
+export const QAReportSchema = z.object({
 	prdName: z.string(),
 	timestamp: z.string().datetime(),
-	testResults: z.array(TestResultSchema),
+	qaResults: z.array(QAResultSchema),
 	summary: z.object({
 		total: z.number().int().min(0),
 		passed: z.number().int().min(0),
@@ -187,19 +150,13 @@ export const TestReportSchema = z.object({
 	agentOutput: z.string().optional(),
 });
 
-/**
- * Test issue schema
- */
-export const TestIssueSchema = z.object({
+export const QAIssueSchema = z.object({
 	id: z.string(),
 	description: z.string(),
 	screenshot: z.string().optional(),
 	severity: z.enum(["critical", "major", "minor"]).optional(),
 });
 
-/**
- * Dependency info schema
- */
 export const DependencyInfoSchema = z.object({
 	name: z.string(),
 	status: PRDStatusSchema,
@@ -209,9 +166,6 @@ export const DependencyInfoSchema = z.object({
 	unmetDependencies: z.array(z.string()),
 });
 
-/**
- * PRD summary schema (for list operations)
- */
 export const PRDSummarySchema = z.object({
 	name: z.string(),
 	status: PRDStatusSchema,
@@ -238,16 +192,18 @@ export type StoryZ = z.infer<typeof StorySchema>;
 export type LastRunZ = z.infer<typeof LastRunSchema>;
 export type PRDMetricsZ = z.infer<typeof PRDMetricsSchema>;
 export type PRDZ = z.infer<typeof PRDSchema>;
-export type AgentConfigZ = z.infer<typeof AgentConfigSchema>;
-export type TestingConfigZ = z.infer<typeof TestingConfigSchema>;
+export type ProviderVariantConfigZ = z.infer<typeof ProviderVariantConfigSchema>;
+export type QAPlatformConfigZ = z.infer<typeof QAPlatformConfigSchema>;
+export type QAConfigZ = z.infer<typeof QAConfigSchema>;
 export type ScriptsConfigZ = z.infer<typeof ScriptsConfigSchema>;
 export type DocsConfigZ = z.infer<typeof DocsConfigSchema>;
+export type VerificationConfigZ = z.infer<typeof VerificationConfigSchema>;
 export type ReviewConfigZ = z.infer<typeof ReviewConfigSchema>;
 export type SwarmConfigZ = z.infer<typeof SwarmConfigSchema>;
 export type RalphConfigZ = z.infer<typeof RalphConfigSchema>;
-export type TestResultZ = z.infer<typeof TestResultSchema>;
-export type TestReportZ = z.infer<typeof TestReportSchema>;
-export type TestIssueZ = z.infer<typeof TestIssueSchema>;
+export type QAResultZ = z.infer<typeof QAResultSchema>;
+export type QAReportZ = z.infer<typeof QAReportSchema>;
+export type QAIssueZ = z.infer<typeof QAIssueSchema>;
 export type DependencyInfoZ = z.infer<typeof DependencyInfoSchema>;
 export type PRDSummaryZ = z.infer<typeof PRDSummarySchema>;
 

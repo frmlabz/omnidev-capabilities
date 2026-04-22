@@ -15,7 +15,7 @@ import type { PRDStatus } from "../types.js";
 import type { EngineContext, EngineEvent } from "./engine.js";
 import type {
 	PRD,
-	AgentConfig,
+	ProviderVariantConfig,
 	RalphConfig,
 	ReviewFinding,
 	ReviewRoundResult,
@@ -24,7 +24,7 @@ import type {
 import type { Result } from "../results.js";
 import { ok } from "../results.js";
 import { atomicWrite } from "../core/paths.js";
-import { getAgentConfig, type ResolvedReviewAgents } from "../core/config.js";
+import { getProviderVariantConfig, type ResolvedReviewProviderVariants } from "../core/config.js";
 import {
 	generateReviewPrompt,
 	generateFixPrompt,
@@ -212,7 +212,7 @@ export class ReviewEngine {
 		prdName: string,
 		prd: PRD,
 		config: RalphConfig,
-		agents: ResolvedReviewAgents,
+		variants: ResolvedReviewProviderVariants,
 		reviewConfig: Required<ReviewConfig>,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
@@ -237,10 +237,10 @@ export class ReviewEngine {
 			return ok(undefined);
 		}
 
-		const externalAgentConfig = this.resolveExternalReviewAgent(
+		const externalProviderVariantConfig = this.resolveExternalReviewVariant(
 			prdName,
 			config,
-			agents.fixAgent,
+			variants.fixVariant,
 			reviewConfig,
 		);
 
@@ -252,17 +252,17 @@ export class ReviewEngine {
 			prdName,
 			prd,
 			reviewConfig.first_review_agents,
-			agents.reviewAgent,
-			agents.fixAgent,
+			variants.reviewVariant,
+			variants.fixVariant,
 			gitDiff,
 			false,
 			emit,
 			signal,
 			reviewConfig.max_fix_iterations,
-			reviewConfig.review_agent
+			reviewConfig.review_provider_variant
 				? {
-						reviewType: `external-${reviewConfig.review_agent}`,
-						agentConfig: externalAgentConfig,
+						reviewType: `external-${reviewConfig.review_provider_variant}`,
+						agentConfig: externalProviderVariantConfig,
 					}
 				: undefined,
 		);
@@ -283,8 +283,8 @@ export class ReviewEngine {
 			prdName,
 			prd,
 			reviewConfig.second_review_agents,
-			agents.reviewAgent,
-			agents.fixAgent,
+			variants.reviewVariant,
+			variants.fixVariant,
 			getGitDiff(), // Re-get diff after fixes
 			true, // second review — critical only
 			emit,
@@ -317,7 +317,7 @@ export class ReviewEngine {
 			log("info", "Starting Phase 3: Finalize");
 			emit({ type: "review_start", phase: "finalize" });
 
-			await this.runFinalize(prdName, prd, agents.finalizeAgent, reviewConfig, emit, signal);
+			await this.runFinalize(prdName, prd, variants.finalizeVariant, reviewConfig, emit, signal);
 
 			emit({ type: "review_phase_complete", phase: "finalize", clean: true });
 			log("info", "Phase 3 complete");
@@ -326,27 +326,27 @@ export class ReviewEngine {
 		return ok(undefined);
 	}
 
-	private resolveExternalReviewAgent(
+	private resolveExternalReviewVariant(
 		prdName: string,
 		config: RalphConfig,
-		fallbackAgent: AgentConfig,
+		fallbackVariant: ProviderVariantConfig,
 		reviewConfig: Required<ReviewConfig>,
-	): AgentConfig {
-		if (!reviewConfig.review_agent) {
-			return fallbackAgent;
+	): ProviderVariantConfig {
+		if (!reviewConfig.review_provider_variant) {
+			return fallbackVariant;
 		}
 
-		const externalAgentResult = getAgentConfig(config, reviewConfig.review_agent);
-		if (!externalAgentResult.ok) {
+		const externalResult = getProviderVariantConfig(config, reviewConfig.review_provider_variant);
+		if (!externalResult.ok) {
 			this.ctx.logger.log(
 				"warn",
-				`Review agent '${reviewConfig.review_agent}' not found in config, using fallback agent`,
+				`Review provider variant '${reviewConfig.review_provider_variant}' not found in config, using fallback variant`,
 				{ prdName },
 			);
-			return fallbackAgent;
+			return fallbackVariant;
 		}
 
-		return externalAgentResult.data!;
+		return externalResult.data!;
 	}
 
 	/**
@@ -356,14 +356,14 @@ export class ReviewEngine {
 		prdName: string,
 		prd: PRD,
 		reviewTypes: string[],
-		reviewAgentConfig: AgentConfig,
-		fixAgentConfig: AgentConfig,
+		reviewProviderVariantConfig: ProviderVariantConfig,
+		fixProviderVariantConfig: ProviderVariantConfig,
 		gitDiff: string,
 		isSecondReview: boolean,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
 		maxFixIterations = 3,
-		externalReview?: { reviewType: string; agentConfig: AgentConfig },
+		externalReview?: { reviewType: string; agentConfig: ProviderVariantConfig },
 	): Promise<{
 		results: ReviewRoundResult[];
 		fixIterations: number;
@@ -386,7 +386,7 @@ export class ReviewEngine {
 				prdName,
 				prd,
 				reviewTypes,
-				reviewAgentConfig,
+				reviewProviderVariantConfig,
 				gitDiff,
 				isSecondReview,
 				emit,
@@ -427,7 +427,14 @@ export class ReviewEngine {
 				iteration: fixIteration + 1,
 				findingsCount: classified.blockers.length,
 			});
-			await this.runFixAgent(prdName, prd, classified.blockers, fixAgentConfig, emit, signal);
+			await this.runFixAgent(
+				prdName,
+				prd,
+				classified.blockers,
+				fixProviderVariantConfig,
+				emit,
+				signal,
+			);
 
 			// Re-get diff for next review iteration
 			gitDiff = getGitDiff();
@@ -446,12 +453,12 @@ export class ReviewEngine {
 		prdName: string,
 		prd: PRD,
 		reviewTypes: string[],
-		reviewAgentConfig: AgentConfig,
+		reviewProviderVariantConfig: ProviderVariantConfig,
 		gitDiff: string,
 		isSecondReview: boolean,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
-		externalReview?: { reviewType: string; agentConfig: AgentConfig },
+		externalReview?: { reviewType: string; agentConfig: ProviderVariantConfig },
 	): Promise<ReviewRoundResult[]> {
 		const reviewPromises = reviewTypes.map(async (reviewType) => {
 			try {
@@ -464,7 +471,7 @@ export class ReviewEngine {
 					gitDiff,
 					isSecondReview,
 				);
-				const result = await this.ctx.agentExecutor.run(prompt, reviewAgentConfig, {
+				const result = await this.ctx.agentExecutor.run(prompt, reviewProviderVariantConfig, {
 					stream: true,
 					signal,
 					onOutput: (data) => emit({ type: "agent_output", data }),
@@ -492,7 +499,13 @@ export class ReviewEngine {
 			reviewPromises.push(
 				(async () => {
 					try {
-						const prompt = generateExternalReviewPrompt(prdName, prd, gitDiff);
+						const prompt = generateExternalReviewPrompt(
+							this.ctx.projectName,
+							this.ctx.repoRoot,
+							prdName,
+							prd,
+							gitDiff,
+						);
 						const result = await this.ctx.agentExecutor.run(prompt, externalReview.agentConfig, {
 							stream: true,
 							signal,
@@ -534,7 +547,7 @@ export class ReviewEngine {
 		prdName: string,
 		prd: PRD,
 		findings: ReviewFinding[],
-		agentConfig: AgentConfig,
+		agentConfig: ProviderVariantConfig,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
 	): Promise<void> {
@@ -596,7 +609,7 @@ export class ReviewEngine {
 	private async runFinalize(
 		prdName: string,
 		prd: PRD,
-		agentConfig: AgentConfig,
+		agentConfig: ProviderVariantConfig,
 		reviewConfig: Required<ReviewConfig>,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,

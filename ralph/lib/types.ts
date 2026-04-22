@@ -13,21 +13,26 @@ export type StoryStatus = "pending" | "in_progress" | "completed" | "blocked";
  * PRD status in the workflow lifecycle
  * - pending: PRD created but not started
  * - in_progress: PRD started, work in progress
- * - testing: All stories complete, ready for verification
+ * - qa: All stories complete, ready for QA verification
  * - completed: Verified and done
  */
-export type PRDStatus = "pending" | "in_progress" | "testing" | "completed";
+export type PRDStatus = "pending" | "in_progress" | "qa" | "completed";
 
 /**
  * Story definition - a chunk of work within a PRD
+ *
+ * Story acceptance criteria live in the story file at `stories/<id>.md`
+ * under the `## Acceptance Criteria` section. prd.json carries only
+ * metadata + `promptPath` — the story file is the source of truth for
+ * scope, deliverables, and acceptance criteria.
  */
 export interface Story {
-	/** Unique story identifier (e.g., US-001) */
+	/** Unique story identifier (e.g., S-01) */
 	id: string;
 	/** Story title */
 	title: string;
-	/** Verifiable acceptance criteria for this chunk */
-	acceptanceCriteria: string[];
+	/** Relative path (from PRD dir) to the story markdown file */
+	promptPath: string;
 	/** Current status */
 	status: StoryStatus;
 	/** Priority 1-10 (lower = higher priority) */
@@ -41,7 +46,6 @@ export interface Story {
 	/**
 	 * Git commit SHA captured when the story first transitioned pending → in_progress.
 	 * Used by the per-story verifier to compute the diff of work done on this story.
-	 * Absent for stories created before per-story verification was introduced.
 	 */
 	startCommit?: string;
 	/**
@@ -69,13 +73,9 @@ export interface LastRun {
  * Metrics tracked for a PRD
  */
 export interface PRDMetrics {
-	/** Total tokens used (input + output) */
 	totalTokens?: number;
-	/** Total input tokens */
 	inputTokens?: number;
-	/** Total output tokens */
 	outputTokens?: number;
-	/** Number of agent iterations run */
 	iterations?: number;
 }
 
@@ -83,84 +83,74 @@ export interface PRDMetrics {
  * Product Requirements Document
  */
 export interface PRD {
-	/** PRD name (unique identifier, matches folder name) */
 	name: string;
-	/** Description of the feature */
 	description: string;
-	/** ISO timestamp of creation */
 	createdAt: string;
-	/** ISO timestamp when work first began */
 	startedAt?: string;
-	/** ISO timestamp when PRD was completed */
 	completedAt?: string;
-	/** List of stories (work chunks) */
 	stories: Story[];
-	/** PRD names that must be completed before this one can start */
 	dependencies?: string[];
 	/**
-	 * True when testing has already failed for this PRD and the next completion
-	 * should skip the full review pipeline for focused test-fix work.
+	 * True when QA has already failed for this PRD and the next completion
+	 * should skip the full review pipeline for focused QA-fix work.
 	 */
-	testsCaughtIssue?: boolean;
-	/** Last run information (set on Ctrl+C or completion) */
+	qaCaughtIssue?: boolean;
 	lastRun?: LastRun;
-	/** Tracked metrics */
 	metrics?: PRDMetrics;
 }
 
 /**
- * Agent configuration
+ * Provider variant configuration — a Ralph-owned LLM launch profile.
+ * Each variant is a command + args pair Ralph can spawn directly.
  */
-export interface AgentConfig {
-	/** Command to spawn the agent */
+export interface ProviderVariantConfig {
 	command: string;
-	/** Arguments for the agent command */
 	args: string[];
 }
 
 /**
- * Testing configuration
+ * QA platform declaration
  */
-export interface TestingConfig {
+export interface QAPlatformConfig {
+	/** Capability id whose ralph-qa.md should be injected. Omit for plain platforms. */
+	plugin?: string;
+}
+
+/**
+ * QA configuration
+ */
+export interface QAConfig {
 	/** Instructions for project verification (e.g., "pnpm lint, pnpm typecheck must pass") */
 	project_verification_instructions?: string;
-	/** Max iterations for test agent */
-	test_iterations?: number;
-	/** Enable web testing with Playwriter */
-	web_testing_enabled?: boolean;
-	/** Free-form instructions for testing (URLs, credentials, context, etc.) */
+	/** Max iterations for QA agent */
+	qa_iterations?: number;
+	/** Free-form QA instructions (URLs, credentials, context, etc.) */
 	instructions?: string;
 	/** Health check timeout in seconds (default: 30) */
 	health_check_timeout?: number;
 	/** Max healthcheck fix agent attempts (default: 3) */
 	max_health_fix_attempts?: number;
+	/** Platform declarations: e.g. platforms.web.plugin = "browser-testing" */
+	platforms?: Record<string, QAPlatformConfig>;
 }
 
 /**
  * Scripts configuration - paths to lifecycle scripts
  */
 export interface ScriptsConfig {
-	/** Path to setup script (runs before testing) */
 	setup?: string;
-	/** Path to start script (starts dev server) */
 	start?: string;
-	/** Path to health check script (polls until ready) */
 	health_check?: string;
-	/** Path to teardown script (cleanup after testing) */
 	teardown?: string;
 }
 
 /**
- * Issue found during testing
+ * Issue found during QA
  */
-export interface TestIssue {
-	/** Issue identifier */
+export interface QAIssue {
 	id: string;
-	/** Description of the issue */
 	description: string;
-	/** Screenshot path if available */
 	screenshot?: string;
-	/** Severity level */
 	severity?: "critical" | "major" | "minor";
 }
 
@@ -168,39 +158,41 @@ export interface TestIssue {
  * Documentation configuration
  */
 export interface DocsConfig {
-	/** Path to documentation directory (relative to project root) */
 	path: string;
-	/** Whether to automatically update docs on PRD completion (default: true) */
 	auto_update?: boolean;
-	/** Agent name for documentation updates. Falls back to default_agent. */
-	agent?: string;
+	/** Provider variant name for documentation updates. Falls back to default_provider_variant. */
+	provider_variant?: string;
+}
+
+/**
+ * Per-story verification configuration
+ */
+export interface VerificationConfig {
+	/**
+	 * Provider variant name used by the per-story verifier.
+	 * Defaults to "claude-haiku" when absent.
+	 */
+	story_verifier_provider_variant?: string;
 }
 
 /**
  * Review configuration for code review pipeline
  */
 export interface ReviewConfig {
-	/** Whether review is enabled (default: true) */
 	enabled?: boolean;
-	/** Agent name for internal review prompts (quality, implementation, etc.). Falls back to default_agent. */
-	agent?: string;
-	/** Agent name for fixing review findings. Falls back to review.agent → default_agent. */
-	fix_agent?: string;
-	/** Agent name for the finalize step. Falls back to review.agent → default_agent. */
-	finalize_agent?: string;
-	/** Review agent name from [ralph.agents.*] for external review, or "" to disable (default: "") */
-	review_agent?: string;
-	/** Whether the finalize step is enabled (default: false) */
+	/** Provider variant for internal review prompts. Falls back to default_provider_variant. */
+	provider_variant?: string;
+	/** Provider variant for fixing review findings. Falls back to review.provider_variant → default_provider_variant. */
+	fix_provider_variant?: string;
+	/** Provider variant for the finalize step. Falls back to review.provider_variant → default_provider_variant. */
+	finalize_provider_variant?: string;
+	/** Provider variant for external review round, or "" to disable (default: "") */
+	review_provider_variant?: string;
 	finalize_enabled?: boolean;
-	/** Custom prompt for the finalize step */
 	finalize_prompt?: string;
-	/** Agent types for the first review round (default: quality, implementation, testing, simplification, documentation) */
 	first_review_agents?: string[];
-	/** Agent types for the second review round (default: quality, implementation) */
 	second_review_agents?: string[];
-	/** Max fix iterations per review phase (default: 3) */
 	max_fix_iterations?: number;
-	/** Optional TODO markdown file for persisting non-blocking review findings. Relative paths resolve from repo root. */
 	todo_file?: string;
 }
 
@@ -208,15 +200,10 @@ export interface ReviewConfig {
  * A single finding from a review agent
  */
 export interface ReviewFinding {
-	/** Severity level */
 	severity: "critical" | "major" | "minor" | "suggestion";
-	/** File path */
 	file: string;
-	/** Line number (if available) */
 	line?: number;
-	/** Description of the issue */
 	issue: string;
-	/** Which reviewer produced this finding */
 	reviewer: string;
 }
 
@@ -224,11 +211,8 @@ export interface ReviewFinding {
  * Result of a single review round
  */
 export interface ReviewRoundResult {
-	/** Which review type produced this result */
 	reviewType: string;
-	/** Overall decision */
 	decision: "approve" | "request_changes";
-	/** Individual findings */
 	findings: ReviewFinding[];
 }
 
@@ -236,52 +220,42 @@ export interface ReviewRoundResult {
  * Swarm configuration for parallel PRD execution
  */
 export interface SwarmConfig {
-	/** Relative path to parent directory for worktrees (default: "..") */
 	worktree_parent?: string;
-	/** Max panes per tmux window (default: 4) */
 	panes_per_window?: number;
-	/** Seconds before auto-closing a completed pane (default: 30) */
 	pane_close_timeout?: number;
-	/** Custom command to create worktree (runs inside pane). Placeholders: {name}, {path}, {branch} */
 	worktree_create_cmd?: string;
-	/** For bare repos: branch name of the primary linked worktree (e.g., "main"). Empty = not a bare repo layout. */
 	primary_branch?: string;
-	/** Agent name for merge operations. Falls back to default_agent. */
-	merge_agent?: string;
+	/** Provider variant for merge operations. Falls back to default_provider_variant. */
+	merge_provider_variant?: string;
 }
 
 /**
  * Ralph configuration
  */
 export interface RalphConfig {
-	/** Project name — used for state directory and session name (e.g., "srbshop") */
+	/** Project name — used for state directory and session name */
 	project_name: string;
-	/** Default agent to use */
-	default_agent: string;
+	/** Default provider variant to use */
+	default_provider_variant: string;
 	/** Default max iterations */
 	default_iterations: number;
-	/** Available agents */
-	agents: Record<string, AgentConfig>;
-	/** Testing configuration */
-	testing?: TestingConfig;
+	/** Available provider variants (Ralph-owned LLM launch profiles) */
+	provider_variants: Record<string, ProviderVariantConfig>;
+	/** Provider variant for verification prompt generation. Falls back to default_provider_variant. */
+	verification_provider_variant?: string;
+	/**
+	 * Whether to run the per-story verifier after each story is marked completed.
+	 * Default: true.
+	 */
+	per_story_verification?: boolean;
+	/** Per-story verification settings */
+	verification?: VerificationConfig;
+	/** QA configuration */
+	qa?: QAConfig;
 	/** Scripts configuration - paths to lifecycle scripts */
 	scripts?: ScriptsConfig;
 	/** Documentation configuration */
 	docs?: DocsConfig;
-	/** Agent name for verification generation. Falls back to default_agent. */
-	verification_agent?: string;
-	/**
-	 * Whether to run the per-story verifier after each story is marked completed
-	 * by the dev agent. When a story fails verification, it gets one retry and
-	 * is blocked after a second failure. Default: true.
-	 */
-	per_story_verification?: boolean;
-	/**
-	 * Agent name from [ralph.agents.*] for the per-story verifier.
-	 * Falls back to default_agent. The verifier is a checklist task, so a cheap
-	 * fast model (e.g. Haiku) is typically appropriate.
-	 */
-	story_verifier_agent?: string;
 	/** Review configuration */
 	review?: ReviewConfig;
 	/** Swarm configuration for parallel PRD execution */
@@ -289,36 +263,27 @@ export interface RalphConfig {
 }
 
 /**
- * Test result for a single verification item
+ * QA result for a single verification item
  */
-export interface TestResult {
-	/** The item being tested */
+export interface QAResult {
 	item: string;
-	/** Whether the test passed */
 	passed: boolean;
-	/** Reason for failure (if failed) */
 	reason?: string;
-	/** Additional details */
 	details?: string;
 }
 
 /**
- * Full test report for a PRD
+ * Full QA report for a PRD
  */
-export interface TestReport {
-	/** PRD name */
+export interface QAReport {
 	prdName: string;
-	/** When the test was run */
 	timestamp: string;
-	/** Individual test results */
-	testResults: TestResult[];
-	/** Summary stats */
+	qaResults: QAResult[];
 	summary: {
 		total: number;
 		passed: number;
 		failed: number;
 	};
-	/** Raw agent output */
 	agentOutput?: string;
 }
 

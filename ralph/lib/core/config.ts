@@ -3,7 +3,6 @@
  *
  * Loads Ralph configuration from omni.toml using smol-toml.
  * If omni.local.toml exists alongside omni.toml, it overrides the base config.
- * Replaces the manual TOML parser with proper library support.
  */
 
 import { existsSync } from "node:fs";
@@ -13,10 +12,12 @@ import { parse } from "smol-toml";
 import { validateRalphConfig } from "../schemas.js";
 import type {
 	RalphConfig,
-	AgentConfig,
-	TestingConfig,
+	ProviderVariantConfig,
+	QAConfig,
+	QAPlatformConfig,
 	ScriptsConfig,
 	DocsConfig,
+	VerificationConfig,
 	ReviewConfig,
 	SwarmConfig,
 } from "../types.js";
@@ -26,18 +27,23 @@ const CONFIG_PATH = "omni.toml";
 const LOCAL_CONFIG_PATH = "omni.local.toml";
 
 /**
+ * Default provider variant for the per-story verifier when not configured.
+ */
+export const DEFAULT_STORY_VERIFIER_PROVIDER_VARIANT = "claude-haiku";
+
+/**
  * Raw TOML structure from omni.toml
  */
 interface RawTomlConfig {
 	ralph?: {
 		project_name?: string;
-		default_agent?: string;
+		default_provider_variant?: string;
 		default_iterations?: number;
-		verification_agent?: string;
+		verification_provider_variant?: string;
 		per_story_verification?: boolean;
-		story_verifier_agent?: string;
-		agents?: Record<string, RawAgentConfig>;
-		testing?: RawTestingConfig;
+		provider_variants?: Record<string, RawProviderVariantConfig>;
+		verification?: RawVerificationConfig;
+		qa?: RawQAConfig;
 		scripts?: RawScriptsConfig;
 		docs?: RawDocsConfig;
 		review?: RawReviewConfig;
@@ -50,18 +56,22 @@ type TomlObject = Record<string, unknown>;
 // Re-export path utilities so consumers can use them via config module
 export { validateProjectName, getStateDir, getPrdsDir } from "./paths.js";
 
-interface RawAgentConfig {
+interface RawProviderVariantConfig {
 	command?: string;
 	args?: string[];
 }
 
-interface RawTestingConfig {
+interface RawQAConfig {
 	project_verification_instructions?: string;
-	test_iterations?: number;
-	web_testing_enabled?: boolean;
+	qa_iterations?: number;
 	instructions?: string;
 	health_check_timeout?: number;
 	max_health_fix_attempts?: number;
+	platforms?: Record<string, RawQAPlatformConfig>;
+}
+
+interface RawQAPlatformConfig {
+	plugin?: string;
 }
 
 interface RawScriptsConfig {
@@ -74,15 +84,19 @@ interface RawScriptsConfig {
 interface RawDocsConfig {
 	path?: string;
 	auto_update?: boolean;
-	agent?: string;
+	provider_variant?: string;
+}
+
+interface RawVerificationConfig {
+	story_verifier_provider_variant?: string;
 }
 
 interface RawReviewConfig {
 	enabled?: boolean;
-	agent?: string;
-	fix_agent?: string;
-	finalize_agent?: string;
-	review_agent?: string;
+	provider_variant?: string;
+	fix_provider_variant?: string;
+	finalize_provider_variant?: string;
+	review_provider_variant?: string;
 	finalize_enabled?: boolean;
 	finalize_prompt?: string;
 	first_review_agents?: string[];
@@ -97,7 +111,7 @@ interface RawSwarmConfig {
 	pane_close_timeout?: number;
 	worktree_create_cmd?: string;
 	primary_branch?: string;
-	merge_agent?: string;
+	merge_provider_variant?: string;
 }
 
 /**
@@ -111,77 +125,81 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 
 	const config: Partial<RalphConfig> = {};
 
-	// Top-level settings
 	if (ralph.project_name !== undefined) {
 		config.project_name = ralph.project_name;
 	}
-	if (ralph.default_agent) {
-		config.default_agent = ralph.default_agent;
+	if (ralph.default_provider_variant) {
+		config.default_provider_variant = ralph.default_provider_variant;
 	}
 	if (ralph.default_iterations !== undefined) {
 		config.default_iterations = ralph.default_iterations;
 	}
-	if (ralph.verification_agent) {
-		config.verification_agent = ralph.verification_agent;
+	if (ralph.verification_provider_variant) {
+		config.verification_provider_variant = ralph.verification_provider_variant;
 	}
 	if (ralph.per_story_verification !== undefined) {
 		config.per_story_verification = ralph.per_story_verification;
 	}
-	if (ralph.story_verifier_agent) {
-		config.story_verifier_agent = ralph.story_verifier_agent;
-	}
 
-	// Agents
-	if (ralph.agents) {
-		config.agents = {};
-		for (const [name, agentRaw] of Object.entries(ralph.agents)) {
-			const agent: AgentConfig = {
-				command: agentRaw.command ?? "",
-				args: agentRaw.args ?? [],
+	// Provider variants (required — transformConfig always emits a dict)
+	config.provider_variants = {};
+	if (ralph.provider_variants) {
+		for (const [name, variantRaw] of Object.entries(ralph.provider_variants)) {
+			const variant: ProviderVariantConfig = {
+				command: variantRaw.command ?? "",
+				args: variantRaw.args ?? [],
 			};
-			config.agents[name] = agent;
+			config.provider_variants[name] = variant;
 		}
 	}
 
-	// Testing config
-	if (ralph.testing) {
-		const testing: TestingConfig = {};
-		if (ralph.testing.project_verification_instructions) {
-			testing.project_verification_instructions = ralph.testing.project_verification_instructions;
+	// Verification config
+	if (ralph.verification) {
+		const verification: VerificationConfig = {};
+		if (ralph.verification.story_verifier_provider_variant) {
+			verification.story_verifier_provider_variant =
+				ralph.verification.story_verifier_provider_variant;
 		}
-		if (ralph.testing.test_iterations !== undefined) {
-			testing.test_iterations = ralph.testing.test_iterations;
+		config.verification = verification;
+	}
+
+	// QA config
+	if (ralph.qa) {
+		const qa: QAConfig = {};
+		if (ralph.qa.project_verification_instructions) {
+			qa.project_verification_instructions = ralph.qa.project_verification_instructions;
 		}
-		if (ralph.testing.web_testing_enabled !== undefined) {
-			testing.web_testing_enabled = ralph.testing.web_testing_enabled;
+		if (ralph.qa.qa_iterations !== undefined) {
+			qa.qa_iterations = ralph.qa.qa_iterations;
 		}
-		if (ralph.testing.instructions) {
-			testing.instructions = ralph.testing.instructions;
+		if (ralph.qa.instructions) {
+			qa.instructions = ralph.qa.instructions;
 		}
-		if (ralph.testing.health_check_timeout !== undefined) {
-			testing.health_check_timeout = ralph.testing.health_check_timeout;
+		if (ralph.qa.health_check_timeout !== undefined) {
+			qa.health_check_timeout = ralph.qa.health_check_timeout;
 		}
-		if (ralph.testing.max_health_fix_attempts !== undefined) {
-			testing.max_health_fix_attempts = ralph.testing.max_health_fix_attempts;
+		if (ralph.qa.max_health_fix_attempts !== undefined) {
+			qa.max_health_fix_attempts = ralph.qa.max_health_fix_attempts;
 		}
-		config.testing = testing;
+		if (ralph.qa.platforms) {
+			const platforms: Record<string, QAPlatformConfig> = {};
+			for (const [name, platRaw] of Object.entries(ralph.qa.platforms)) {
+				const plat: QAPlatformConfig = {};
+				if (platRaw.plugin) plat.plugin = platRaw.plugin;
+				platforms[name] = plat;
+			}
+			qa.platforms = platforms;
+		}
+		config.qa = qa;
 	}
 
 	// Scripts config
 	if (ralph.scripts) {
 		const scripts: ScriptsConfig = {};
-		if (ralph.scripts.setup) {
-			scripts.setup = ralph.scripts.setup;
-		}
-		if (ralph.scripts.start) {
-			scripts.start = ralph.scripts.start;
-		}
-		if (ralph.scripts.health_check) {
-			scripts.health_check = ralph.scripts.health_check;
-		}
-		if (ralph.scripts.teardown) {
-			scripts.teardown = ralph.scripts.teardown;
-		}
+		if (ralph.scripts.setup) scripts.setup = ralph.scripts.setup;
+		if (ralph.scripts.start) scripts.start = ralph.scripts.start;
+		if (ralph.scripts.health_check) scripts.health_check = ralph.scripts.health_check;
+		if (ralph.scripts.teardown) scripts.teardown = ralph.scripts.teardown;
 		config.scripts = scripts;
 	}
 
@@ -192,71 +210,48 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 	if (ralph.docs?.auto_update !== undefined) {
 		docs.auto_update = ralph.docs.auto_update;
 	}
-	if (ralph.docs?.agent) {
-		docs.agent = ralph.docs.agent;
+	if (ralph.docs?.provider_variant) {
+		docs.provider_variant = ralph.docs.provider_variant;
 	}
 	config.docs = docs;
 
 	// Review config
 	if (ralph.review) {
 		const review: ReviewConfig = {};
-		if (ralph.review.enabled !== undefined) {
-			review.enabled = ralph.review.enabled;
-		}
-		if (ralph.review.agent) {
-			review.agent = ralph.review.agent;
-		}
-		if (ralph.review.fix_agent) {
-			review.fix_agent = ralph.review.fix_agent;
-		}
-		if (ralph.review.finalize_agent) {
-			review.finalize_agent = ralph.review.finalize_agent;
-		}
-		if (ralph.review.review_agent) {
-			review.review_agent = ralph.review.review_agent;
-		}
-		if (ralph.review.finalize_enabled !== undefined) {
+		if (ralph.review.enabled !== undefined) review.enabled = ralph.review.enabled;
+		if (ralph.review.provider_variant) review.provider_variant = ralph.review.provider_variant;
+		if (ralph.review.fix_provider_variant)
+			review.fix_provider_variant = ralph.review.fix_provider_variant;
+		if (ralph.review.finalize_provider_variant)
+			review.finalize_provider_variant = ralph.review.finalize_provider_variant;
+		if (ralph.review.review_provider_variant)
+			review.review_provider_variant = ralph.review.review_provider_variant;
+		if (ralph.review.finalize_enabled !== undefined)
 			review.finalize_enabled = ralph.review.finalize_enabled;
-		}
-		if (ralph.review.finalize_prompt) {
-			review.finalize_prompt = ralph.review.finalize_prompt;
-		}
-		if (ralph.review.first_review_agents) {
+		if (ralph.review.finalize_prompt) review.finalize_prompt = ralph.review.finalize_prompt;
+		if (ralph.review.first_review_agents)
 			review.first_review_agents = ralph.review.first_review_agents;
-		}
-		if (ralph.review.second_review_agents) {
+		if (ralph.review.second_review_agents)
 			review.second_review_agents = ralph.review.second_review_agents;
-		}
-		if (ralph.review.max_fix_iterations !== undefined) {
+		if (ralph.review.max_fix_iterations !== undefined)
 			review.max_fix_iterations = ralph.review.max_fix_iterations;
-		}
-		if (ralph.review.todo_file) {
-			review.todo_file = ralph.review.todo_file;
-		}
+		if (ralph.review.todo_file) review.todo_file = ralph.review.todo_file;
 		config.review = review;
 	}
 
 	// Swarm config
 	if (ralph.swarm) {
 		const swarm: SwarmConfig = {};
-		if (ralph.swarm.worktree_parent) {
-			swarm.worktree_parent = ralph.swarm.worktree_parent;
-		}
-		if (ralph.swarm.panes_per_window !== undefined) {
+		if (ralph.swarm.worktree_parent) swarm.worktree_parent = ralph.swarm.worktree_parent;
+		if (ralph.swarm.panes_per_window !== undefined)
 			swarm.panes_per_window = ralph.swarm.panes_per_window;
-		}
-		if (ralph.swarm.pane_close_timeout !== undefined) {
+		if (ralph.swarm.pane_close_timeout !== undefined)
 			swarm.pane_close_timeout = ralph.swarm.pane_close_timeout;
-		}
-		if (ralph.swarm.worktree_create_cmd) {
+		if (ralph.swarm.worktree_create_cmd)
 			swarm.worktree_create_cmd = ralph.swarm.worktree_create_cmd;
-		}
-		if (ralph.swarm.primary_branch) {
-			swarm.primary_branch = ralph.swarm.primary_branch;
-		}
-		if (ralph.swarm.merge_agent) {
-			swarm.merge_agent = ralph.swarm.merge_agent;
-		}
+		if (ralph.swarm.primary_branch) swarm.primary_branch = ralph.swarm.primary_branch;
+		if (ralph.swarm.merge_provider_variant)
+			swarm.merge_provider_variant = ralph.swarm.merge_provider_variant;
 		config.swarm = swarm;
 	}
 
@@ -305,6 +300,47 @@ async function parseTomlFile(path: string): Promise<RawTomlConfig> {
 }
 
 /**
+ * Validate that every referenced provider variant exists in the config.
+ * Names the missing variant and the setting that referenced it.
+ */
+function validateProviderVariantReferences(config: RalphConfig): Result<RalphConfig> {
+	const references: Array<{ name: string | undefined; setting: string }> = [
+		{ name: config.default_provider_variant, setting: "ralph.default_provider_variant" },
+		{ name: config.verification_provider_variant, setting: "ralph.verification_provider_variant" },
+		{
+			name: config.verification?.story_verifier_provider_variant,
+			setting: "ralph.verification.story_verifier_provider_variant",
+		},
+		{ name: config.review?.provider_variant, setting: "ralph.review.provider_variant" },
+		{ name: config.review?.fix_provider_variant, setting: "ralph.review.fix_provider_variant" },
+		{
+			name: config.review?.finalize_provider_variant,
+			setting: "ralph.review.finalize_provider_variant",
+		},
+		{
+			name: config.review?.review_provider_variant,
+			setting: "ralph.review.review_provider_variant",
+		},
+		{ name: config.docs?.provider_variant, setting: "ralph.docs.provider_variant" },
+		{
+			name: config.swarm?.merge_provider_variant,
+			setting: "ralph.swarm.merge_provider_variant",
+		},
+	];
+
+	for (const ref of references) {
+		if (ref.name && !(ref.name in config.provider_variants)) {
+			return err(
+				ErrorCodes.CONFIG_INVALID,
+				`Provider variant '${ref.name}' referenced by ${ref.setting} is not defined in [ralph.provider_variants.*].`,
+			);
+		}
+	}
+
+	return ok(config);
+}
+
+/**
  * Load Ralph configuration from omni.toml, merged with omni.local.toml when present.
  */
 export async function loadConfig(configPath?: string): Promise<Result<RalphConfig>> {
@@ -329,7 +365,6 @@ export async function loadConfig(configPath?: string): Promise<Result<RalphConfi
 				: raw;
 		const config = transformConfig(mergedRaw);
 
-		// Validate with Zod
 		const validation = validateRalphConfig(config);
 		if (!validation.success) {
 			return err(
@@ -338,7 +373,7 @@ export async function loadConfig(configPath?: string): Promise<Result<RalphConfi
 			);
 		}
 
-		return ok(validation.data as RalphConfig);
+		return validateProviderVariantReferences(validation.data as RalphConfig);
 	} catch (error) {
 		if (error instanceof Error && error.message.startsWith("TOML parse error in ")) {
 			return err(ErrorCodes.CONFIG_INVALID, error.message);
@@ -351,41 +386,45 @@ export async function loadConfig(configPath?: string): Promise<Result<RalphConfi
 }
 
 /**
- * Get agent configuration by name
+ * Get provider variant configuration by name.
+ * Falls back to default_provider_variant when name is omitted.
  */
-export function getAgentConfig(config: RalphConfig, agentName?: string): Result<AgentConfig> {
-	const name = agentName ?? config.default_agent;
-	const agentConfig = config.agents[name];
+export function getProviderVariantConfig(
+	config: RalphConfig,
+	name?: string,
+): Result<ProviderVariantConfig> {
+	const resolved = name ?? config.default_provider_variant;
+	const variant = config.provider_variants[resolved];
 
-	if (!agentConfig) {
-		const available = Object.keys(config.agents).join(", ");
+	if (!variant) {
+		const available = Object.keys(config.provider_variants).join(", ");
 		return err(
 			ErrorCodes.AGENT_NOT_FOUND,
-			`Agent '${name}' not found in configuration. Available agents: ${available}`,
+			`Provider variant '${resolved}' not found. Available: ${available}`,
 		);
 	}
 
-	return ok(agentConfig);
+	return ok(variant);
 }
 
 /**
- * Validate that an agent exists in the configuration
+ * Validate that a provider variant exists in the configuration
  */
-export function hasAgent(config: RalphConfig, agentName: string): boolean {
-	return agentName in config.agents;
+export function hasProviderVariant(config: RalphConfig, name: string): boolean {
+	return name in config.provider_variants;
 }
 
 /**
- * Get testing configuration with defaults
+ * Get QA configuration with defaults
  */
-export function getTestingConfig(config: RalphConfig): TestingConfig {
+export function getQAConfig(config: RalphConfig): QAConfig {
 	return {
-		test_iterations: config.testing?.test_iterations ?? config.default_iterations,
-		health_check_timeout: config.testing?.health_check_timeout ?? 30,
-		web_testing_enabled: config.testing?.web_testing_enabled ?? false,
-		project_verification_instructions: config.testing?.project_verification_instructions,
-		instructions: config.testing?.instructions,
-		max_health_fix_attempts: config.testing?.max_health_fix_attempts ?? 3,
+		qa_iterations: config.qa?.qa_iterations ?? config.default_iterations,
+		health_check_timeout: config.qa?.health_check_timeout ?? 30,
+		project_verification_instructions: config.qa?.project_verification_instructions,
+		instructions: config.qa?.instructions,
+		max_health_fix_attempts: config.qa?.max_health_fix_attempts ?? 3,
+		platforms: config.qa?.platforms ?? {},
 	};
 }
 
@@ -401,23 +440,27 @@ export function getScriptsConfig(config: RalphConfig): ScriptsConfig {
  */
 export interface StoryVerificationConfig {
 	enabled: boolean;
-	agentName: string;
+	providerVariantName: string;
 }
 
 export function getStoryVerificationConfig(config: RalphConfig): StoryVerificationConfig {
 	return {
 		enabled: config.per_story_verification ?? true,
-		agentName: config.story_verifier_agent ?? "",
+		providerVariantName:
+			config.verification?.story_verifier_provider_variant ??
+			DEFAULT_STORY_VERIFIER_PROVIDER_VARIANT,
 	};
 }
 
 /**
- * Resolve the agent used by the per-story verifier.
- * Falls back to the default agent when story_verifier_agent is not set.
+ * Resolve the provider variant used by the per-story verifier.
+ * Falls back to the default variant "claude-haiku" when unconfigured.
  */
-export function resolveStoryVerifierAgent(config: RalphConfig): Result<AgentConfig> {
-	const name = config.story_verifier_agent || config.default_agent;
-	return getAgentConfig(config, name);
+export function resolveStoryVerifierProviderVariant(
+	config: RalphConfig,
+): Result<ProviderVariantConfig> {
+	const { providerVariantName } = getStoryVerificationConfig(config);
+	return getProviderVariantConfig(config, providerVariantName);
 }
 
 /**
@@ -438,10 +481,10 @@ const DEFAULT_SECOND_REVIEW_AGENTS = ["quality", "implementation"];
 export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 	return {
 		enabled: config.review?.enabled ?? true,
-		agent: config.review?.agent ?? "",
-		fix_agent: config.review?.fix_agent ?? "",
-		finalize_agent: config.review?.finalize_agent ?? "",
-		review_agent: config.review?.review_agent ?? "",
+		provider_variant: config.review?.provider_variant ?? "",
+		fix_provider_variant: config.review?.fix_provider_variant ?? "",
+		finalize_provider_variant: config.review?.finalize_provider_variant ?? "",
+		review_provider_variant: config.review?.review_provider_variant ?? "",
 		finalize_enabled: config.review?.finalize_enabled ?? false,
 		finalize_prompt: config.review?.finalize_prompt ?? "",
 		first_review_agents: config.review?.first_review_agents ?? DEFAULT_FIRST_REVIEW_AGENTS,
@@ -452,58 +495,54 @@ export function getReviewConfig(config: RalphConfig): Required<ReviewConfig> {
 }
 
 /**
- * Resolved agent configs for each review pipeline phase
+ * Resolved provider variant configs for each review pipeline phase
  */
-export interface ResolvedReviewAgents {
-	reviewAgent: AgentConfig;
-	fixAgent: AgentConfig;
-	finalizeAgent: AgentConfig;
+export interface ResolvedReviewProviderVariants {
+	reviewVariant: ProviderVariantConfig;
+	fixVariant: ProviderVariantConfig;
+	finalizeVariant: ProviderVariantConfig;
 }
 
 /**
- * Resolve per-phase agent configs for the review pipeline.
+ * Resolve per-phase provider variant configs for the review pipeline.
  *
  * Fallback chains:
- * - review:      review.agent → default_agent
- * - fix:         review.fix_agent → review.agent → default_agent
- * - finalize:    review.finalize_agent → review.agent → default_agent
+ * - review:   review.provider_variant → default_provider_variant
+ * - fix:      review.fix_provider_variant → review.provider_variant → default_provider_variant
+ * - finalize: review.finalize_provider_variant → review.provider_variant → default_provider_variant
  */
-export function resolveReviewAgents(
+export function resolveReviewProviderVariants(
 	config: RalphConfig,
 	reviewConfig: Required<ReviewConfig>,
-): Result<ResolvedReviewAgents> {
-	const resolve = (name: string): Result<AgentConfig> => {
-		if (name) {
-			return getAgentConfig(config, name);
-		}
-		return getAgentConfig(config);
+): Result<ResolvedReviewProviderVariants> {
+	const resolve = (name: string): Result<ProviderVariantConfig> => {
+		if (name) return getProviderVariantConfig(config, name);
+		return getProviderVariantConfig(config);
 	};
 
-	// review.agent → default_agent
-	const reviewAgentName = reviewConfig.agent || "";
-	const reviewAgentResult = resolve(reviewAgentName);
-	if (!reviewAgentResult.ok) {
-		return err(reviewAgentResult.error!.code, reviewAgentResult.error!.message);
+	const reviewName = reviewConfig.provider_variant || "";
+	const reviewResult = resolve(reviewName);
+	if (!reviewResult.ok) {
+		return err(reviewResult.error!.code, reviewResult.error!.message);
 	}
 
-	// review.fix_agent → review.agent → default_agent
-	const fixAgentName = reviewConfig.fix_agent || reviewConfig.agent || "";
-	const fixAgentResult = resolve(fixAgentName);
-	if (!fixAgentResult.ok) {
-		return err(fixAgentResult.error!.code, fixAgentResult.error!.message);
+	const fixName = reviewConfig.fix_provider_variant || reviewConfig.provider_variant || "";
+	const fixResult = resolve(fixName);
+	if (!fixResult.ok) {
+		return err(fixResult.error!.code, fixResult.error!.message);
 	}
 
-	// review.finalize_agent → review.agent → default_agent
-	const finalizeAgentName = reviewConfig.finalize_agent || reviewConfig.agent || "";
-	const finalizeAgentResult = resolve(finalizeAgentName);
-	if (!finalizeAgentResult.ok) {
-		return err(finalizeAgentResult.error!.code, finalizeAgentResult.error!.message);
+	const finalizeName =
+		reviewConfig.finalize_provider_variant || reviewConfig.provider_variant || "";
+	const finalizeResult = resolve(finalizeName);
+	if (!finalizeResult.ok) {
+		return err(finalizeResult.error!.code, finalizeResult.error!.message);
 	}
 
 	return ok({
-		reviewAgent: reviewAgentResult.data!,
-		fixAgent: fixAgentResult.data!,
-		finalizeAgent: finalizeAgentResult.data!,
+		reviewVariant: reviewResult.data!,
+		fixVariant: fixResult.data!,
+		finalizeVariant: finalizeResult.data!,
 	});
 }
 
@@ -512,15 +551,17 @@ export function resolveReviewAgents(
  */
 export function getSwarmConfig(
 	config: RalphConfig,
-): Required<Omit<SwarmConfig, "worktree_create_cmd" | "primary_branch" | "merge_agent">> &
-	Pick<SwarmConfig, "worktree_create_cmd" | "primary_branch" | "merge_agent"> {
+): Required<
+	Omit<SwarmConfig, "worktree_create_cmd" | "primary_branch" | "merge_provider_variant">
+> &
+	Pick<SwarmConfig, "worktree_create_cmd" | "primary_branch" | "merge_provider_variant"> {
 	return {
 		worktree_parent: config.swarm?.worktree_parent ?? "..",
 		panes_per_window: config.swarm?.panes_per_window ?? 4,
 		pane_close_timeout: config.swarm?.pane_close_timeout ?? 30,
 		worktree_create_cmd: config.swarm?.worktree_create_cmd,
 		primary_branch: config.swarm?.primary_branch,
-		merge_agent: config.swarm?.merge_agent,
+		merge_provider_variant: config.swarm?.merge_provider_variant,
 	};
 }
 

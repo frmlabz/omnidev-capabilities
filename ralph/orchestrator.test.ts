@@ -7,7 +7,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it } from "bun:test";
 import {
 	loadConfig,
 	getAgentExecutor,
@@ -15,7 +15,7 @@ import {
 	getStatusDir,
 	ensureDirectories,
 } from "./lib/index.js";
-import type { PRD } from "./lib/types.js";
+import type { PRD, PRDStatus } from "./lib/types.js";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 
 const PROJECT_NAME = "test";
@@ -26,22 +26,22 @@ let originalCwd: string;
 
 const MOCK_CONFIG = `[ralph]
 project_name = "test"
-default_agent = "test"
+default_provider_variant = "test"
 default_iterations = 5
 
-[ralph.agents.test]
+[ralph.provider_variants.test]
 command = "echo"
 args = ["test output"]
 
-[ralph.agents.claude]
+[ralph.provider_variants.claude]
 command = "npx"
 args = ["-y", "@anthropic-ai/claude-code", "--model", "sonnet", "-p"]
 `;
 
 const LOCAL_OVERRIDE_CONFIG = `[ralph]
-default_agent = "claude"
+default_provider_variant = "claude"
 
-[ralph.agents.test]
+[ralph.provider_variants.test]
 args = ["local output"]
 
 [ralph.docs]
@@ -50,10 +50,10 @@ path = "guides"
 
 const LOCAL_ONLY_CONFIG = `[ralph]
 project_name = "local-test"
-default_agent = "local"
+default_provider_variant = "local"
 default_iterations = 7
 
-[ralph.agents.local]
+[ralph.provider_variants.local]
 command = "printf"
 args = ["local"]
 `;
@@ -73,16 +73,9 @@ function prepareReviewableFeatureBranch(repoRoot: string): void {
 async function createTestPRD(
 	name: string,
 	options: Partial<PRD> = {},
-	status: string = "pending",
+	status: PRDStatus = "pending",
 ): Promise<void> {
-	const prdDir = join(
-		getStatusDir(
-			PROJECT_NAME,
-			REPO_ROOT,
-			status as "pending" | "in_progress" | "testing" | "completed",
-		),
-		name,
-	);
+	const prdDir = join(getStatusDir(PROJECT_NAME, REPO_ROOT, status), name);
 	mkdirSync(prdDir, { recursive: true });
 
 	const prd: PRD = {
@@ -99,6 +92,19 @@ async function createTestPRD(
 		"## Codebase Patterns\n\n---\n\n## Progress Log\n\n",
 	);
 	await writeFile(join(prdDir, "spec.md"), "# Test Spec\n\nTest content");
+
+	// Emit a story markdown file for every story so downstream code that reads
+	// `stories/<id>.md` can find one (matches the new FR-1 layout).
+	if (prd.stories.length > 0) {
+		mkdirSync(join(prdDir, "stories"), { recursive: true });
+		for (const story of prd.stories) {
+			const storyPath = join(prdDir, story.promptPath);
+			await writeFile(
+				storyPath,
+				`# ${story.id}: ${story.title}\n\n## Acceptance Criteria\n- [ ] Done\n`,
+			);
+		}
+	}
 }
 
 beforeEach(() => {
@@ -129,9 +135,9 @@ it("loads valid config", async () => {
 	assert.ok(result.ok);
 	const config = result.data!;
 
-	assert.strictEqual(config.default_agent, "test");
+	assert.strictEqual(config.default_provider_variant, "test");
 	assert.strictEqual(config.default_iterations, 5);
-	assert.deepStrictEqual(config.agents["test"], {
+	assert.deepStrictEqual(config.provider_variants["test"], {
 		command: "echo",
 		args: ["test output"],
 	});
@@ -152,14 +158,14 @@ it("returns error if config is invalid", async () => {
 	assert.ok(!result.ok);
 });
 
-it("parses multiple agents", async () => {
+it("parses multiple provider variants", async () => {
 	const result = await loadConfig();
 	assert.ok(result.ok);
 	const config = result.data!;
 
-	assert.ok(config.agents["test"] !== undefined);
-	assert.ok(config.agents["claude"] !== undefined);
-	assert.strictEqual(config.agents["claude"]?.command, "npx");
+	assert.ok(config.provider_variants["test"] !== undefined);
+	assert.ok(config.provider_variants["claude"] !== undefined);
+	assert.strictEqual(config.provider_variants["claude"]?.command, "npx");
 });
 
 it("merges omni.local.toml over omni.toml", async () => {
@@ -169,13 +175,13 @@ it("merges omni.local.toml over omni.toml", async () => {
 	assert.ok(result.ok);
 	const config = result.data!;
 
-	assert.strictEqual(config.default_agent, "claude");
-	assert.deepStrictEqual(config.agents["test"], {
+	assert.strictEqual(config.default_provider_variant, "claude");
+	assert.deepStrictEqual(config.provider_variants["test"], {
 		command: "echo",
 		args: ["local output"],
 	});
 	assert.strictEqual(config.docs?.path, "guides");
-	assert.ok(config.agents["claude"] !== undefined);
+	assert.ok(config.provider_variants["claude"] !== undefined);
 });
 
 it("loads review todo_file config", async () => {
@@ -202,9 +208,9 @@ it("accepts Ralph config provided only by omni.local.toml", async () => {
 	const config = result.data!;
 
 	assert.strictEqual(config.project_name, "local-test");
-	assert.strictEqual(config.default_agent, "local");
+	assert.strictEqual(config.default_provider_variant, "local");
 	assert.strictEqual(config.default_iterations, 7);
-	assert.deepStrictEqual(config.agents["local"], {
+	assert.deepStrictEqual(config.provider_variants["local"], {
 		command: "printf",
 		args: ["local"],
 	});
@@ -251,7 +257,7 @@ it("stops when blocked stories exist", async () => {
 			{
 				id: "US-001",
 				title: "Blocked story",
-				acceptanceCriteria: ["Done"],
+				promptPath: "stories/US-001.md",
 				status: "blocked",
 				priority: 1,
 				questions: ["What should I do?"],
@@ -273,7 +279,7 @@ it("completes when no stories remain", async () => {
 			{
 				id: "US-001",
 				title: "Done story",
-				acceptanceCriteria: ["Done"],
+				promptPath: "stories/US-001.md",
 				status: "completed",
 				priority: 1,
 				questions: [],
@@ -285,28 +291,28 @@ it("completes when no stories remain", async () => {
 	const result = await engine.runDevelopment("completed-prd");
 
 	assert.ok(result.ok);
-	assert.strictEqual(result.data!.outcome, "moved_to_testing");
+	assert.strictEqual(result.data!.outcome, "moved_to_qa");
 });
 
-it("skips review after a failed test cycle even if testsCaughtIssue was dropped from prd.json", async () => {
+it("skips review after a failed QA cycle even if qaCaughtIssue was dropped from prd.json", async () => {
 	prepareReviewableFeatureBranch(REPO_ROOT);
 	await createTestPRD(
 		"fix-cycle-prd",
 		{
-			description: "PRD resuming after failed testing",
+			description: "PRD resuming after failed QA",
 			stories: [
 				{
 					id: "US-001",
 					title: "Original work",
-					acceptanceCriteria: ["Done"],
+					promptPath: "stories/US-001.md",
 					status: "completed",
 					priority: 1,
 					questions: [],
 				},
 				{
 					id: "FIX-001",
-					title: "Fix bugs from testing",
-					acceptanceCriteria: ["Fix test failures"],
+					title: "Fix bugs from QA",
+					promptPath: "stories/FIX-001.md",
 					status: "completed",
 					priority: 1,
 					questions: [],
@@ -346,7 +352,7 @@ it("skips review after a failed test cycle even if testsCaughtIssue was dropped 
 	});
 
 	assert.ok(result.ok);
-	assert.strictEqual(result.data!.outcome, "moved_to_testing");
+	assert.strictEqual(result.data!.outcome, "moved_to_qa");
 	assert.ok(
 		events.some(
 			(event) =>

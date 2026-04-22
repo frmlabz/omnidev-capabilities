@@ -6,10 +6,10 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
-	AgentConfig,
+	ProviderVariantConfig,
 	DependencyInfo,
 	LastRun,
 	PRD,
@@ -20,7 +20,7 @@ import type {
 } from "./types.js";
 import { getStatusDir, getStateDir, ensureStateDirs, atomicWrite } from "./core/paths.js";
 
-const ALL_STATUSES: PRDStatus[] = ["pending", "in_progress", "testing", "completed"];
+const ALL_STATUSES: PRDStatus[] = ["pending", "in_progress", "qa", "completed"];
 
 /**
  * Ensure all status directories exist
@@ -540,7 +540,7 @@ export async function isPRDCompleteOrArchived(
 		return true;
 	}
 
-	if (status === "pending" || status === "testing") {
+	if (status === "pending" || status === "qa") {
 		return await isPRDComplete(projectName, repoRoot, prdName);
 	}
 
@@ -717,19 +717,19 @@ export async function extractAndSaveFindings(
 	projectName: string,
 	repoRoot: string,
 	prdName: string,
-	agentConfig?: AgentConfig,
+	providerVariant?: ProviderVariantConfig,
 	runAgentFn?: (
 		prompt: string,
-		config: AgentConfig,
+		config: ProviderVariantConfig,
 	) => Promise<{ output: string; exitCode: number }>,
 ): Promise<void> {
 	let findings: string;
 
-	if (agentConfig && runAgentFn) {
+	if (providerVariant && runAgentFn) {
 		// Use LLM-based extraction
 		const { generateFindingsExtractionPrompt } = await import("./prompt.js");
 		const prompt = await generateFindingsExtractionPrompt(projectName, repoRoot, prdName);
-		const { output } = await runAgentFn(prompt, agentConfig);
+		const { output } = await runAgentFn(prompt, providerVariant);
 
 		// Extract markdown from output (agent may include extra text)
 		const markdownMatch = output.match(/## \[\d{4}-\d{2}-\d{2}\][\s\S]*?(?=\n## \[|$)/);
@@ -760,30 +760,69 @@ export async function getNextFixStoryId(
 }
 
 /**
- * Add a fix story to a PRD based on test failures
+ * Add a fix story to a PRD based on QA failures.
+ * Emits a story file at `stories/<id>.md` and records `promptPath` on the story.
  */
 export async function addFixStory(
 	projectName: string,
 	repoRoot: string,
 	prdName: string,
 	issues: string[],
-	testResultsPath: string,
+	qaResultsPath: string,
 ): Promise<string> {
 	const prd = await getPRD(projectName, repoRoot, prdName);
 	const storyId = await getNextFixStoryId(projectName, repoRoot, prdName);
 	const date = new Date().toISOString().split("T")[0];
+	const prdDir = getPRDPath(projectName, repoRoot, prdName);
+	if (!prdDir) {
+		throw new Error(`PRD not found: ${prdName}`);
+	}
 
-	const newStory = {
+	const promptPath = `stories/${storyId}.md`;
+	const storyFilePath = join(prdDir, promptPath);
+	const storyDir = join(prdDir, "stories");
+	mkdirSync(storyDir, { recursive: true });
+
+	const frontmatter = [
+		"---",
+		`id: ${storyId}`,
+		`title: Fix bugs from QA (${date})`,
+		"priority: 1",
+		"dependencies: []",
+		"---",
+		"",
+	].join("\n");
+
+	const body = `## Goal
+Address QA failures reported for ${prdName}.
+
+## Scope
+- Review QA report and fix each reported issue
+- Re-run the verification checklist items that failed
+
+## Out of scope
+- New features or refactors unrelated to the listed failures
+
+## Deliverables
+1. Each failure below resolved in code
+2. All items in verification.md pass
+3. Project quality checks (lint, typecheck, tests) pass
+
+## Acceptance Criteria
+- [ ] Review QA results at \`${qaResultsPath}\`
+${issues.map((issue) => `- [ ] Fix: ${issue}`).join("\n")}
+- [ ] All items in verification.md pass
+- [ ] All project quality checks must pass
+`;
+
+	await writeFile(storyFilePath, frontmatter + body);
+
+	const newStory: Story = {
 		id: storyId,
-		title: `Fix bugs from testing (${date})`,
-		status: "pending" as const,
-		priority: 1, // High priority - fix bugs first
-		acceptanceCriteria: [
-			`Review test results at ${testResultsPath}`,
-			...issues.map((issue) => `Fix: ${issue}`),
-			"Ensure all items in verification.md pass",
-			"All project quality checks must pass",
-		],
+		title: `Fix bugs from QA (${date})`,
+		status: "pending",
+		priority: 1,
+		promptPath,
 		questions: [],
 	};
 
@@ -794,37 +833,53 @@ export async function addFixStory(
 }
 
 /**
- * Get the test results directory path for a PRD
+ * Get the QA results directory path for a PRD
  */
-export function getTestResultsDir(
+export function getQAResultsDir(
 	projectName: string,
 	repoRoot: string,
 	prdName: string,
 ): string | null {
 	const prdPath = getPRDPath(projectName, repoRoot, prdName);
 	if (!prdPath) return null;
-	return join(prdPath, "test-results");
+	return join(prdPath, "qa-results");
 }
 
 /**
- * Clear the test results directory for a PRD
+ * Clear the QA results directory for a PRD
  */
-export async function clearTestResults(
+export async function clearQAResults(
 	projectName: string,
 	repoRoot: string,
 	prdName: string,
 ): Promise<void> {
-	const testResultsDir = getTestResultsDir(projectName, repoRoot, prdName);
-	if (!testResultsDir) {
+	const qaResultsDir = getQAResultsDir(projectName, repoRoot, prdName);
+	if (!qaResultsDir) {
 		throw new Error(`PRD not found: ${prdName}`);
 	}
 
-	if (existsSync(testResultsDir)) {
-		rmSync(testResultsDir, { recursive: true });
+	if (existsSync(qaResultsDir)) {
+		rmSync(qaResultsDir, { recursive: true });
 	}
 
 	// Recreate empty directory structure
-	mkdirSync(testResultsDir, { recursive: true });
-	mkdirSync(join(testResultsDir, "screenshots"), { recursive: true });
-	mkdirSync(join(testResultsDir, "api-responses"), { recursive: true });
+	mkdirSync(qaResultsDir, { recursive: true });
+	mkdirSync(join(qaResultsDir, "screenshots"), { recursive: true });
+	mkdirSync(join(qaResultsDir, "api-responses"), { recursive: true });
+}
+
+/**
+ * Resolve the absolute path to a story's markdown file.
+ */
+export function getStoryFilePath(
+	projectName: string,
+	repoRoot: string,
+	prdName: string,
+	story: Story,
+): string {
+	const prdPath = getPRDPath(projectName, repoRoot, prdName);
+	if (!prdPath) {
+		throw new Error(`PRD not found: ${prdName}`);
+	}
+	return join(prdPath, story.promptPath);
 }

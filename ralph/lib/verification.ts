@@ -7,11 +7,26 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { findPRDLocation, getPRD, getProgress, getSpec } from "./state.js";
-import type { AgentConfig } from "./types.js";
+import { findPRDLocation, getPRD, getProgress, getSpec, getStoryFilePath } from "./state.js";
+import type { ProviderVariantConfig, Story } from "./types.js";
 import { getStatusDir, atomicWrite } from "./core/paths.js";
+import { readStoryAcceptanceCriteria } from "./orchestration/story-verifier.js";
 
 const DEFAULT_DOCS_GLOB = "docs/**/*.md";
+
+function readACsForStory(
+	projectName: string,
+	repoRoot: string,
+	prdName: string,
+	story: Story,
+): string[] {
+	try {
+		const storyFilePath = getStoryFilePath(projectName, repoRoot, prdName, story);
+		return readStoryAcceptanceCriteria(storyFilePath);
+	} catch {
+		return [];
+	}
+}
 
 /**
  * Get the path to the verification file
@@ -84,11 +99,13 @@ export async function generateVerificationPrompt(
 		specContent = "(spec.md not found)";
 	}
 
-	// Format completed stories with their acceptance criteria
+	// Format completed stories with their acceptance criteria (read from story files)
 	const completedStories = prd.stories
 		.filter((s) => s.status === "completed")
 		.map((s) => {
-			const criteria = s.acceptanceCriteria.map((c) => `    - ${c}`).join("\n");
+			const criteria = readACsForStory(projectName, repoRoot, prdName, s)
+				.map((c) => `    - ${c}`)
+				.join("\n");
 			return `  - **${s.id}: ${s.title}**\n${criteria}`;
 		})
 		.join("\n\n");
@@ -189,14 +206,14 @@ export async function generateVerification(
 	projectName: string,
 	repoRoot: string,
 	prdName: string,
-	agentConfig: AgentConfig,
+	providerVariant: ProviderVariantConfig,
 	runAgentFn: (
 		prompt: string,
-		config: AgentConfig,
+		variant: ProviderVariantConfig,
 	) => Promise<{ output: string; exitCode: number }>,
 ): Promise<string> {
 	const prompt = await generateVerificationPrompt(projectName, repoRoot, prdName);
-	const { output, exitCode } = await runAgentFn(prompt, agentConfig);
+	const { output, exitCode } = await runAgentFn(prompt, providerVariant);
 
 	if (exitCode !== 0) {
 		throw new Error(`Agent failed with exit code ${exitCode}`);
@@ -250,7 +267,7 @@ export async function generateSimpleVerification(
 
 	for (const story of completedStories) {
 		lines.push(`### ${story.id}: ${story.title}`);
-		for (const criterion of story.acceptanceCriteria) {
+		for (const criterion of readACsForStory(projectName, repoRoot, prdName, story)) {
 			lines.push(`- [ ] ${criterion}`);
 		}
 		lines.push("");

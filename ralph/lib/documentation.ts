@@ -7,7 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
-import type { AgentConfig, PRD } from "./types.js";
+import type { ProviderVariantConfig, PRD } from "./types.js";
 import { getPRD, getProgress, getSpec } from "./state.js";
 
 /**
@@ -345,10 +345,10 @@ export async function updateDocumentation(
 	repoRoot: string,
 	prdName: string,
 	docsPath: string,
-	agentConfig: AgentConfig,
+	providerVariant: ProviderVariantConfig,
 	runAgentFn: (
 		prompt: string,
-		config: AgentConfig,
+		variant: ProviderVariantConfig,
 	) => Promise<{ output: string; exitCode: number }>,
 ): Promise<{ updated: string[]; skipped: string[]; errors: string[] }> {
 	console.log("\nAnalyzing documentation for updates...");
@@ -368,7 +368,7 @@ export async function updateDocumentation(
 	console.log(`Found ${promptResult.context.relevantDocs.length} documentation files to analyze.`);
 
 	// Run the agent with the documentation update prompt
-	const { output } = await runAgentFn(promptResult.prompt, agentConfig);
+	const { output } = await runAgentFn(promptResult.prompt, providerVariant);
 
 	// Apply the updates
 	const results = await applyDocumentationUpdates(output, docsPath);

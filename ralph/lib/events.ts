@@ -1,7 +1,7 @@
 /**
  * Ralph Event-Based API
  *
- * Provides EventEmitter-based wrappers for orchestration and testing
+ * Provides EventEmitter-based wrappers for orchestration and QA
  * that emit events instead of writing to stdout. Designed for daemon integration.
  *
  * NOTE: This module now wraps the unified OrchestrationEngine from orchestration/engine.ts
@@ -15,7 +15,7 @@ import {
 	type RunOptions as EngineRunOptions,
 } from "./orchestration/engine.js";
 import { Logger } from "./core/logger.js";
-import type { TestReport } from "./types.js";
+import type { QAReport } from "./types.js";
 
 /**
  * Event types emitted by the orchestrator
@@ -27,8 +27,8 @@ export type OrchestratorEvent = EngineEvent;
  * Options for running orchestration
  */
 export interface OrchestratorOptions {
-	/** Override the default agent */
-	agent?: string;
+	/** Override the default provider variant */
+	providerVariant?: string;
 	/** Working directory (defaults to cwd) */
 	cwd?: string;
 	/** Abort signal for cancellation */
@@ -76,7 +76,7 @@ export class Orchestrator extends EventEmitter {
 
 		try {
 			const engineOptions: EngineRunOptions = {
-				agent: options.agent,
+				providerVariant: options.providerVariant,
 				signal,
 				onEvent: (event) => this.emitEvent(event),
 			};
@@ -94,12 +94,12 @@ export class Orchestrator extends EventEmitter {
 	}
 
 	/**
-	 * Run testing for a PRD
+	 * Run QA for a PRD
 	 */
-	async runTesting(
+	async runQA(
 		prdName: string,
 		options: OrchestratorOptions = {},
-	): Promise<{ report: TestReport; result: "verified" | "failed" | "unknown" }> {
+	): Promise<{ report: QAReport; result: "verified" | "failed" | "unknown" }> {
 		if (this.isRunning) {
 			throw new Error("Orchestrator is already running");
 		}
@@ -111,12 +111,12 @@ export class Orchestrator extends EventEmitter {
 
 		try {
 			const engineOptions: EngineRunOptions = {
-				agent: options.agent,
+				providerVariant: options.providerVariant,
 				signal,
 				onEvent: (event) => this.emitEvent(event),
 			};
 
-			const result = await this.engine.runTesting(prdName, engineOptions);
+			const result = await this.engine.runQA(prdName, engineOptions);
 
 			if (!result.ok) {
 				this.emitEvent({ type: "error", error: result.error!.message });

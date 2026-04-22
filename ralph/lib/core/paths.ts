@@ -70,7 +70,7 @@ export function getSwarmStatePath(projectName: string, repoRoot: string): string
  * Ensure all status directories exist under the state dir.
  */
 export function ensureStateDirs(projectName: string, repoRoot: string): void {
-	const statuses: PRDStatus[] = ["pending", "in_progress", "testing", "completed"];
+	const statuses: PRDStatus[] = ["pending", "in_progress", "qa", "completed"];
 	for (const status of statuses) {
 		mkdirSync(getStatusDir(projectName, repoRoot, status), {
 			recursive: true,

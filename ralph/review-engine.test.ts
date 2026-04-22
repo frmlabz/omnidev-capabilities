@@ -3,14 +3,14 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it } from "bun:test";
 import {
 	ReviewEngine,
 	getDefaultStore,
 	getReviewConfig,
 	getStateDir,
 	getStatusDir,
-	resolveReviewAgents,
+	resolveReviewProviderVariants,
 } from "./lib/index.js";
 import type { RalphConfig, PRD } from "./lib/types.js";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
@@ -31,6 +31,7 @@ function prepareReviewableFeatureBranch(repoRoot: string): void {
 async function createReviewablePrd(repoRoot: string, prdName: string): Promise<PRD> {
 	const prdDir = join(getStatusDir(PROJECT_NAME, repoRoot, "in_progress"), prdName);
 	mkdirSync(prdDir, { recursive: true });
+	mkdirSync(join(prdDir, "stories"), { recursive: true });
 
 	const prd: PRD = {
 		name: prdName,
@@ -40,7 +41,7 @@ async function createReviewablePrd(repoRoot: string, prdName: string): Promise<P
 			{
 				id: "US-001",
 				title: "Implement feature",
-				acceptanceCriteria: ["Feature works"],
+				promptPath: "stories/US-001.md",
 				status: "completed",
 				priority: 1,
 				questions: [],
@@ -51,6 +52,10 @@ async function createReviewablePrd(repoRoot: string, prdName: string): Promise<P
 	await writeFile(join(prdDir, "prd.json"), JSON.stringify(prd, null, 2));
 	await writeFile(join(prdDir, "progress.txt"), "## Progress Log\n\n");
 	await writeFile(join(prdDir, "spec.md"), "# Spec\n\nTest spec");
+	await writeFile(
+		join(prdDir, "stories", "US-001.md"),
+		"# US-001: Implement feature\n\n## Acceptance Criteria\n- [ ] Feature works\n",
+	);
 
 	return prd;
 }
@@ -176,14 +181,14 @@ it("aggregates first-pass reviewers, dedupes blockers, and writes non-blocking f
 
 	const config: RalphConfig = {
 		project_name: PROJECT_NAME,
-		default_agent: "test",
+		default_provider_variant: "test",
 		default_iterations: 5,
-		agents: {
+		provider_variants: {
 			test: { command: "echo", args: ["test"] },
 			codex: { command: "echo", args: ["codex"] },
 		},
 		review: {
-			review_agent: "codex",
+			review_provider_variant: "codex",
 			first_review_agents: ["quality", "implementation"],
 			second_review_agents: ["quality"],
 			max_fix_iterations: 2,
@@ -192,8 +197,8 @@ it("aggregates first-pass reviewers, dedupes blockers, and writes non-blocking f
 	};
 
 	const reviewConfig = getReviewConfig(config);
-	const agentsResult = resolveReviewAgents(config, reviewConfig);
-	assert.ok(agentsResult.ok);
+	const variantsResult = resolveReviewProviderVariants(config, reviewConfig);
+	assert.ok(variantsResult.ok);
 
 	const engine = new ReviewEngine({
 		projectName: PROJECT_NAME,
@@ -207,7 +212,7 @@ it("aggregates first-pass reviewers, dedupes blockers, and writes non-blocking f
 		prd.name,
 		prd,
 		config,
-		agentsResult.data!,
+		variantsResult.data!,
 		reviewConfig,
 		() => {},
 	);

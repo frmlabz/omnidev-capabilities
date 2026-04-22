@@ -5,7 +5,7 @@
  * All operations return a Result type with success/failure info.
  */
 
-import type { PRDStatus, TestReport } from "./types.js";
+import type { PRDStatus, QAReport } from "./types.js";
 
 /**
  * Base result type - all operations return this
@@ -78,14 +78,14 @@ export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
  * PRD display state (for UI/daemon)
  * Combines PRD status + worktree existence
  */
-export type PRDDisplayState = "pending" | "in_progress" | "testing" | "completed";
+export type PRDDisplayState = "pending" | "in_progress" | "qa" | "completed";
 
 /**
  * Compute display state from PRD status and worktree existence
  */
 export function computeDisplayState(prdStatus: PRDStatus, hasWorktree: boolean): PRDDisplayState {
 	if (prdStatus === "completed") return "completed";
-	if (prdStatus === "testing") return "testing";
+	if (prdStatus === "qa") return "qa";
 	if (prdStatus === "pending" && hasWorktree) return "in_progress";
 	return "pending";
 }
@@ -97,7 +97,7 @@ export interface StartResult {
 	prdName: string;
 	status: PRDStatus;
 	displayState: PRDDisplayState;
-	outcome: "moved_to_testing" | "blocked" | "max_iterations" | "interrupted" | "error";
+	outcome: "moved_to_qa" | "blocked" | "max_iterations" | "interrupted" | "error";
 	message: string;
 	storiesCompleted: number;
 	storiesRemaining: number;
@@ -106,16 +106,16 @@ export interface StartResult {
 }
 
 /**
- * Result of running tests
+ * Result of running QA
  */
-export interface TestResult {
+export interface QAStartResult {
 	prdName: string;
 	status: PRDStatus;
 	displayState: PRDDisplayState;
 	outcome: "verified" | "failed" | "unknown" | "health_check_failed" | "error";
 	message: string;
 	issues?: string[];
-	report?: TestReport;
+	report?: QAReport;
 }
 
 /**
@@ -134,7 +134,7 @@ export interface StateResult {
 		pending: number;
 	};
 	canStart: boolean;
-	canTest: boolean;
+	canQA: boolean;
 	canMerge: boolean;
 }
 
@@ -153,8 +153,8 @@ export interface TransitionResult {
  */
 const VALID_TRANSITIONS: Record<PRDDisplayState, PRDDisplayState[]> = {
 	pending: ["in_progress"], // Start development
-	in_progress: ["testing", "pending"], // Complete dev or fail back
-	testing: ["completed", "in_progress"], // Pass tests or fail back
+	in_progress: ["qa", "pending"], // Complete dev or fail back
+	qa: ["completed", "in_progress"], // Pass QA or fail back
 	completed: [], // Terminal state (merge happens outside)
 };
 
@@ -185,8 +185,8 @@ export function getAvailableActions(state: PRDDisplayState): string[] {
 			return ["start"];
 		case "in_progress":
 			return ["start", "stop"]; // start = resume
-		case "testing":
-			return ["test", "stop"];
+		case "qa":
+			return ["qa", "stop"];
 		case "completed":
 			return ["merge"];
 	}

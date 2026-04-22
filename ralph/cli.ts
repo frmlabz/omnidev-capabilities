@@ -37,7 +37,7 @@ import {
 	createEngine,
 	type EngineEvent,
 } from "./lib/index.js";
-import { getAgentConfig } from "./lib/core/config.js";
+import { getProviderVariantConfig } from "./lib/core/config.js";
 import { getAgentExecutor } from "./lib/orchestration/agent-runner.js";
 import { getStatusDir } from "./lib/core/paths.js";
 import type { PRD, PRDStatus, Story } from "./lib/types.js";
@@ -108,14 +108,14 @@ function consoleEventHandler(event: EngineEvent): void {
 				);
 			}
 			break;
-		case "test_complete":
+		case "qa_complete":
 			if (event.result === "verified") console.log("\n✅ PRD_VERIFIED!");
 			else if (event.result === "failed") {
-				console.log("\n❌ PRD_FAILED!");
+				console.log("\n❌ QA_FAILED!");
 				if (event.issues?.length) {
 					for (const issue of event.issues) console.log(`  - ${issue}`);
 				}
-			} else console.log("\n⚠️  No clear test result signal detected.");
+			} else console.log("\n⚠️  No clear QA result signal detected.");
 			break;
 		case "complete":
 			// Handled in the result processing
@@ -145,7 +145,7 @@ async function getProjectContext(): Promise<{ projectName: string; repoRoot: str
 const STATUS_EMOJI: Record<PRDStatus, string> = {
 	pending: "🟡",
 	in_progress: "🔵",
-	testing: "🟣",
+	qa: "🟣",
 	completed: "✅",
 };
 
@@ -240,7 +240,7 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 	const statusOrder: Record<PRDStatus, number> = {
 		pending: 0,
 		in_progress: 1,
-		testing: 2,
+		qa: 2,
 		completed: 3,
 	};
 	const sortedPrds = [...prds].sort((a, b) => {
@@ -341,7 +341,7 @@ export async function runList(flags: Record<string, unknown>): Promise<void> {
 	}
 
 	console.log(
-		"Legend: 🟡 Pending | 🔵 In Progress | 🟣 Testing | ✅ Completed | 🟢 Ready | 🔒 Blocked | 🚫 Has blocked stories",
+		"Legend: 🟡 Pending | 🔵 In Progress | 🟣 QA | ✅ Completed | 🟢 Ready | 🔒 Blocked | 🚫 Has blocked stories",
 	);
 }
 
@@ -517,7 +517,8 @@ export async function runStart(flags: Record<string, unknown>, prdName?: unknown
 		process.exit(1);
 	}
 
-	const agentOverride = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
+	const variantOverride =
+		typeof flags["provider-variant"] === "string" ? flags["provider-variant"] : undefined;
 
 	const { projectName, repoRoot } = await getProjectContext();
 	const status = findPRDLocation(projectName, repoRoot, prdName);
@@ -535,7 +536,7 @@ export async function runStart(flags: Record<string, unknown>, prdName?: unknown
 	if (status !== "pending" && status !== "in_progress") {
 		console.error(`\n⚠️  PRD "${prdName}" is in ${status} status.`);
 		console.error(`Only PRDs in 'pending' or 'in_progress' status can be started.`);
-		if (status === "testing") {
+		if (status === "qa") {
 			console.error(`\nTo continue work, move it back to in_progress:`);
 			console.error(`  omnidev ralph prd ${prdName} --move in_progress`);
 		}
@@ -617,7 +618,7 @@ export async function runStart(flags: Record<string, unknown>, prdName?: unknown
 
 	try {
 		const result = await engine.runDevelopment(prdName, {
-			agent: agentOverride,
+			providerVariant: variantOverride,
 			signal: controller.signal,
 			onEvent: consoleEventHandler,
 		});
@@ -629,9 +630,9 @@ export async function runStart(flags: Record<string, unknown>, prdName?: unknown
 
 		const data = result.data!;
 		switch (data.outcome) {
-			case "moved_to_testing":
-				console.log("\nPRD moved to testing. Next steps:");
-				console.log(`  omnidev ralph test ${prdName}                 # run automated tests`);
+			case "moved_to_qa":
+				console.log("\nPRD moved to QA. Next steps:");
+				console.log(`  omnidev ralph qa ${prdName}                   # run QA`);
 				console.log(`  omnidev ralph complete ${prdName}             # if verified`);
 				console.log(`  omnidev ralph prd ${prdName} --move in_progress # if issues found`);
 				break;
@@ -700,7 +701,7 @@ export async function runPrd(flags: Record<string, unknown>, prdName?: unknown):
 
 	// Handle --move
 	if (moveToStatus) {
-		const validStatuses: PRDStatus[] = ["pending", "in_progress", "testing", "completed"];
+		const validStatuses: PRDStatus[] = ["pending", "in_progress", "qa", "completed"];
 		if (!validStatuses.includes(moveToStatus)) {
 			console.error(`Invalid status: ${moveToStatus}`);
 			console.error(`Valid statuses: ${validStatuses.join(", ")}`);
@@ -803,7 +804,7 @@ const listCommand = command({
 		flags: {
 			status: {
 				kind: "string",
-				brief: "Filter by status (pending, testing, completed)",
+				brief: "Filter by status (pending, in_progress, qa, completed)",
 				optional: true,
 			},
 			all: {
@@ -830,9 +831,9 @@ const startCommand = command({
 	brief: "Start Ralph orchestration (Ctrl+C to stop)",
 	parameters: {
 		flags: {
-			agent: {
+			"provider-variant": {
 				kind: "string",
-				brief: "Agent to use (e.g., claude, codex, amp)",
+				brief: "Provider variant to use (e.g., claude, codex)",
 				optional: true,
 			},
 		},
@@ -864,7 +865,7 @@ const prdCommand = command({
 		flags: {
 			move: {
 				kind: "string",
-				brief: "Move PRD to status (pending, testing, completed, archived)",
+				brief: "Move PRD to status (pending, in_progress, qa, completed)",
 				optional: true,
 			},
 			edit: {
@@ -911,8 +912,8 @@ export async function runComplete(
 
 	if (!prdName || typeof prdName !== "string") {
 		console.error("Usage: omnidev ralph complete <prd-name>");
-		console.error("\nAvailable PRDs in testing:");
-		const prds = await listPRDsByStatus(projectName, repoRoot, "testing");
+		console.error("\nAvailable PRDs in QA:");
+		const prds = await listPRDsByStatus(projectName, repoRoot, "qa");
 		if (prds.length === 0) {
 			console.log("  (none)");
 		} else {
@@ -935,11 +936,11 @@ export async function runComplete(
 		process.exit(1);
 	}
 
-	if (status !== "testing") {
+	if (status !== "qa") {
 		console.error(`\n⚠️  PRD "${prdName}" is in ${status} status.`);
-		console.error(`Only PRDs in 'testing' status can be completed.`);
+		console.error(`Only PRDs in 'qa' status can be completed.`);
 		if (status === "pending") {
-			console.error(`\nFirst finish all stories and move to testing:`);
+			console.error(`\nFirst finish all stories and move to QA:`);
 			console.error(`  omnidev ralph start ${prdName}`);
 		}
 		process.exit(1);
@@ -954,21 +955,22 @@ export async function runComplete(
 			process.exit(1);
 		}
 		const config = configResult.data!;
-		const agentConfigResult = getAgentConfig(config);
-		if (!agentConfigResult.ok) {
-			console.error(agentConfigResult.error!.message);
+		const variantName = config.default_provider_variant;
+		const providerVariantResult = getProviderVariantConfig(config, variantName);
+		if (!providerVariantResult.ok) {
+			console.error(providerVariantResult.error!.message);
 			process.exit(1);
 		}
-		const agentConfig = agentConfigResult.data!;
+		const providerVariant = providerVariantResult.data!;
 
 		const executor = getAgentExecutor();
-		const runAgentFn = async (prompt: string, cfg: typeof agentConfig) => {
+		const runAgentFn = async (prompt: string, cfg: typeof providerVariant) => {
 			const result = await executor.run(prompt, cfg);
 			return { output: result.output, exitCode: result.exitCode };
 		};
 
 		console.log("Extracting findings via LLM...");
-		await extractAndSaveFindings(projectName, repoRoot, prdName, agentConfig, runAgentFn);
+		await extractAndSaveFindings(projectName, repoRoot, prdName, providerVariant, runAgentFn);
 		console.log("Findings saved to PRD directory");
 
 		console.log("Moving PRD to completed...");
@@ -991,17 +993,17 @@ const completeCommand = command({
 });
 
 /**
- * Run tests for a PRD
+ * Run QA for a PRD
  */
-export async function runTest(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
+export async function runQA(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
 	const { projectName, repoRoot } = await getProjectContext();
 
 	if (!prdName || typeof prdName !== "string") {
-		console.error("Usage: omnidev ralph test <prd-name> [--agent <agent-name>]");
-		console.error("\nAvailable PRDs in testing:");
-		const prds = await listPRDsByStatus(projectName, repoRoot, "testing");
+		console.error("Usage: omnidev ralph qa <prd-name> [--provider-variant <variant-name>]");
+		console.error("\nAvailable PRDs in QA:");
+		const prds = await listPRDsByStatus(projectName, repoRoot, "qa");
 		if (prds.length === 0) {
-			console.log("  (none in testing status)");
+			console.log("  (none in QA status)");
 			console.log("\nPRDs in pending:");
 			const pendingPrds = await listPRDsByStatus(projectName, repoRoot, "pending");
 			for (const { name } of pendingPrds) {
@@ -1015,7 +1017,8 @@ export async function runTest(flags: Record<string, unknown>, prdName?: unknown)
 		process.exit(1);
 	}
 
-	const agentOverride = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
+	const variantOverride =
+		typeof flags["provider-variant"] === "string" ? flags["provider-variant"] : undefined;
 
 	const status = findPRDLocation(projectName, repoRoot, prdName);
 	if (!status) {
@@ -1029,12 +1032,12 @@ export async function runTest(flags: Record<string, unknown>, prdName?: unknown)
 		process.exit(1);
 	}
 
-	// Run testing via engine
+	// Run QA via engine
 	const engine = createEngine({ projectName, repoRoot });
 
 	try {
-		const result = await engine.runTesting(prdName, {
-			agent: agentOverride,
+		const result = await engine.runQA(prdName, {
+			providerVariant: variantOverride,
 			onEvent: consoleEventHandler,
 		});
 
@@ -1055,29 +1058,44 @@ export async function runTest(flags: Record<string, unknown>, prdName?: unknown)
 		} else {
 			// Unknown - manual action needed
 			console.log(`\nManual action required:`);
-			console.log(`  omnidev ralph complete ${prdName}       # if tests passed`);
+			console.log(`  omnidev ralph complete ${prdName}       # if QA passed`);
 			console.log(`  omnidev ralph prd ${prdName} --move in_progress  # if issues found`);
 			process.exit(2);
 		}
 	} catch (error) {
-		console.error(`\nError running tests: ${error}`);
+		console.error(`\nError running QA: ${error}`);
 		process.exit(1);
 	}
 }
 
-const testCommand = command({
-	brief: "Run verification tests for a PRD",
+const qaCommand = command({
+	brief: "Run QA for a PRD",
 	parameters: {
 		flags: {
-			agent: {
+			"provider-variant": {
 				kind: "string",
-				brief: "Agent to use (e.g., claude, codex, amp)",
+				brief: "Provider variant to use (e.g., claude, codex)",
 				optional: true,
 			},
 		},
 		positional: [{ brief: "PRD name", kind: "string" }],
 	},
-	func: runTest,
+	func: runQA,
+});
+
+/**
+ * One-way cutover for legacy PRDs into the Ralph 2.1 layout.
+ */
+export async function runMigrate(_flags: Record<string, unknown>): Promise<void> {
+	const { runMigration, formatMigrationReport } = await import("./lib/migrate.js");
+	const report = await runMigration();
+	console.log(formatMigrationReport(report));
+}
+
+const migrateCommand = command({
+	brief: "Migrate legacy PRD state to the Ralph 2.1 layout (one-way)",
+	parameters: {},
+	func: runMigrate,
 });
 
 // ── Swarm commands ─────────────────────────────────────────────────────
@@ -1176,8 +1194,8 @@ function getRunHint(runStatus: string, prdStatus: PRDStatus | null): string | nu
 	if (prdStatus === "completed") {
 		return "swarm merge <name> or swarm cleanup <name>";
 	}
-	if (prdStatus === "testing") {
-		return "swarm test <name> to resume, or swarm merge <name>";
+	if (prdStatus === "qa") {
+		return "swarm qa <name> to resume, or swarm merge <name>";
 	}
 	// pending, in_progress, or unknown
 	return "swarm start <name> to resume";
@@ -1185,13 +1203,14 @@ function getRunHint(runStatus: string, prdStatus: PRDStatus | null): string | nu
 
 async function runSwarmStart(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
 	if (!prdName || typeof prdName !== "string") {
-		console.error("Usage: omnidev ralph swarm start <prd-name> [--agent <agent>]");
+		console.error("Usage: omnidev ralph swarm start <prd-name> [--provider-variant <variant>]");
 		process.exit(1);
 	}
 
 	const manager = await createSwarmManager();
-	const agent = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
-	const result = await manager.start(prdName, { agent });
+	const providerVariant =
+		typeof flags["provider-variant"] === "string" ? flags["provider-variant"] : undefined;
+	const result = await manager.start(prdName, { providerVariant });
 
 	if (!result.ok) {
 		console.error(`Error: ${result.error!.message}`);
@@ -1203,22 +1222,23 @@ async function runSwarmStart(flags: Record<string, unknown>, prdName?: unknown):
 	console.log(`  Pane: ${run.paneId} | Branch: ${run.branch}`);
 }
 
-async function runSwarmTest(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
+async function runSwarmQA(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
 	if (!prdName || typeof prdName !== "string") {
-		console.error("Usage: omnidev ralph swarm test <prd-name> [--agent <agent>]");
+		console.error("Usage: omnidev ralph swarm qa <prd-name> [--provider-variant <variant>]");
 		process.exit(1);
 	}
 
 	const manager = await createSwarmManager();
-	const agent = typeof flags["agent"] === "string" ? flags["agent"] : undefined;
-	const result = await manager.test(prdName, { agent });
+	const providerVariant =
+		typeof flags["provider-variant"] === "string" ? flags["provider-variant"] : undefined;
+	const result = await manager.qa(prdName, { providerVariant });
 
 	if (!result.ok) {
 		console.error(`Error: ${result.error!.message}`);
 		process.exit(1);
 	}
 
-	console.log(`Testing "${prdName}" — pane: ${result.data!.paneId}`);
+	console.log(`QA "${prdName}" — pane: ${result.data!.paneId}`);
 }
 
 async function runSwarmStop(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
@@ -1306,7 +1326,7 @@ async function runSwarmLogs(flags: Record<string, unknown>, prdName?: unknown): 
 }
 
 async function runSwarmMerge(flags: Record<string, unknown>, prdName?: unknown): Promise<void> {
-	const { getAgentConfig, getSwarmConfig } = await import("./lib/core/config.js");
+	const { getProviderVariantConfig, getSwarmConfig } = await import("./lib/core/config.js");
 	const configResult = await loadConfig();
 	if (!configResult.ok) {
 		console.error(configResult.error!.message);
@@ -1314,15 +1334,18 @@ async function runSwarmMerge(flags: Record<string, unknown>, prdName?: unknown):
 	}
 
 	const swarmConfig = getSwarmConfig(configResult.data!);
-	const agentName = typeof flags["agent"] === "string" ? flags["agent"] : swarmConfig.merge_agent;
-	const agentResult = getAgentConfig(configResult.data!, agentName);
-	if (!agentResult.ok) {
-		console.error(agentResult.error!.message);
+	const variantName =
+		typeof flags["provider-variant"] === "string"
+			? flags["provider-variant"]
+			: swarmConfig.merge_provider_variant;
+	const variantResult = getProviderVariantConfig(configResult.data!, variantName);
+	if (!variantResult.ok) {
+		console.error(variantResult.error!.message);
 		process.exit(1);
 	}
 
 	const mergeOptions = {
-		agentConfig: agentResult.data!,
+		providerVariant: variantResult.data!,
 		onOutput: (data: string) => process.stdout.write(data),
 	};
 
@@ -1421,22 +1444,22 @@ const swarmStartCommand = command({
 	brief: "Start a PRD in a new worktree + tmux pane",
 	parameters: {
 		flags: {
-			agent: { kind: "string", brief: "Agent to use", optional: true },
+			"provider-variant": { kind: "string", brief: "Provider variant to use", optional: true },
 		},
 		positional: [{ brief: "PRD name", kind: "string" }],
 	},
 	func: runSwarmStart,
 });
 
-const swarmTestCommand = command({
-	brief: "Run tests for a PRD in its worktree",
+const swarmQACommand = command({
+	brief: "Run QA for a PRD in its worktree",
 	parameters: {
 		flags: {
-			agent: { kind: "string", brief: "Agent to use", optional: true },
+			"provider-variant": { kind: "string", brief: "Provider variant to use", optional: true },
 		},
 		positional: [{ brief: "PRD name", kind: "string" }],
 	},
-	func: runSwarmTest,
+	func: runSwarmQA,
 });
 
 const swarmStopCommand = command({
@@ -1480,7 +1503,11 @@ const swarmMergeCommand = command({
 	parameters: {
 		flags: {
 			all: { kind: "boolean", brief: "Merge all completed/stopped PRDs", optional: true },
-			agent: { kind: "string", brief: "Agent to use for merge", optional: true },
+			"provider-variant": {
+				kind: "string",
+				brief: "Provider variant for merge",
+				optional: true,
+			},
 		},
 		positional: [{ brief: "PRD name", kind: "string", optional: true }],
 	},
@@ -1508,7 +1535,7 @@ const swarmRoutes = routes({
 	brief: "Parallel PRD execution via worktrees + tmux",
 	routes: {
 		start: swarmStartCommand,
-		test: swarmTestCommand,
+		qa: swarmQACommand,
 		stop: swarmStopCommand,
 		list: swarmListCommand,
 		attach: swarmAttachCommand,
@@ -1530,7 +1557,8 @@ export const ralphRoutes = routes({
 		prd: prdCommand,
 		spec: specCommand,
 		complete: completeCommand,
-		test: testCommand,
+		qa: qaCommand,
+		migrate: migrateCommand,
 		swarm: swarmRoutes,
 	},
 });

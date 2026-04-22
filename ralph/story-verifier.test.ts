@@ -1,8 +1,8 @@
 import assert from "node:assert";
 import { execSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it } from "bun:test";
 import type { AgentResult, RunOptions } from "./lib/orchestration/agent-runner.js";
 import {
 	MAX_DIFF_CHARS,
@@ -12,14 +12,14 @@ import {
 	parseVerifierOutput,
 	verifyStory,
 } from "./lib/orchestration/story-verifier.js";
-import type { AgentConfig, Story } from "./lib/types.js";
+import type { ProviderVariantConfig, Story } from "./lib/types.js";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 
 function makeStory(overrides: Partial<Story> = {}): Story {
 	return {
 		id: "US-001",
 		title: "Add feature X",
-		acceptanceCriteria: ["Handler exists", "Test added", "Logs emitted"],
+		promptPath: "stories/US-001.md",
 		status: "in_progress",
 		priority: 1,
 		questions: [],
@@ -27,19 +27,40 @@ function makeStory(overrides: Partial<Story> = {}): Story {
 	};
 }
 
+/**
+ * Write a story markdown file with the given acceptance criteria to a tmpdir.
+ * Returns the absolute path to the file.
+ */
+function writeStoryFile(baseDir: string, story: Story, acs: string[]): string {
+	const storyFilePath = join(baseDir, story.promptPath);
+	mkdirSync(join(storyFilePath, ".."), { recursive: true });
+	const acBlock = acs.map((ac) => `- [ ] ${ac}`).join("\n");
+	const content = `# ${story.id}: ${story.title}
+
+## Acceptance Criteria
+${acBlock}
+`;
+	writeFileSync(storyFilePath, content);
+	return storyFilePath;
+}
+
 class FakeExecutor {
-	calls: Array<{ prompt: string; config: AgentConfig; options?: RunOptions }> = [];
+	calls: Array<{ prompt: string; config: ProviderVariantConfig; options?: RunOptions }> = [];
 	private readonly output: string;
 	constructor(output: string) {
 		this.output = output;
 	}
-	async run(prompt: string, config: AgentConfig, options?: RunOptions): Promise<AgentResult> {
+	async run(
+		prompt: string,
+		config: ProviderVariantConfig,
+		options?: RunOptions,
+	): Promise<AgentResult> {
 		this.calls.push({ prompt, config, options });
 		return { output: this.output, exitCode: 0, aborted: false };
 	}
 }
 
-const AGENT_CONFIG: AgentConfig = { command: "echo", args: [] };
+const PROVIDER_VARIANT: ProviderVariantConfig = { command: "echo", args: [] };
 
 it("parseVerifierOutput: all met + PASS produces pass=true", () => {
 	const out = `
@@ -155,10 +176,12 @@ it("captureCurrentCommit: returns a sha in a real repo and undefined elsewhere",
 it("verifyStory: returns skipped=true when story has no startCommit", async () => {
 	const story = makeStory();
 	const executor = new FakeExecutor("should not be called");
+	// storyFilePath does not need to exist — startCommit absent short-circuits first.
 	const outcome = await verifyStory({
 		story,
+		storyFilePath: "/tmp/does-not-matter.md",
 		repoRoot: "/tmp",
-		agentConfig: AGENT_CONFIG,
+		providerVariant: PROVIDER_VARIANT,
 		// biome-ignore lint/suspicious/noExplicitAny: test double
 		agentExecutor: executor as any,
 	});
@@ -171,28 +194,37 @@ it("verifyStory: marks all ACs unmet when diff is empty", async () => {
 	repoDir = initRepo();
 	const start = execSync("git rev-parse HEAD", { cwd: repoDir, encoding: "utf-8" }).trim();
 	const story = makeStory({ startCommit: start });
+	const acs = ["Handler exists", "Test added", "Logs emitted"];
+	const storyFilePath = writeStoryFile(repoDir, story, acs);
 	const executor = new FakeExecutor("unused");
 	const outcome = await verifyStory({
 		story,
+		storyFilePath,
 		repoRoot: repoDir,
-		agentConfig: AGENT_CONFIG,
+		providerVariant: PROVIDER_VARIANT,
 		// biome-ignore lint/suspicious/noExplicitAny: test double
 		agentExecutor: executor as any,
 	});
 	assert.equal(outcome.pass, false);
 	assert.equal(executor.calls.length, 0);
-	assert.equal(outcome.failedAcs.length, story.acceptanceCriteria.length);
+	assert.equal(outcome.failedAcs.length, acs.length);
 	assert.ok(outcome.failedAcs.every((fa) => fa.status === "unmet"));
 });
 
 it("verifyStory: calls executor and returns pass when verifier says all met", async () => {
 	repoDir = initRepo();
 	const start = execSync("git rev-parse HEAD", { cwd: repoDir, encoding: "utf-8" }).trim();
+	const story = makeStory({ startCommit: start });
+	const storyFilePath = writeStoryFile(repoDir, story, ["AC1", "AC2", "AC3"]);
+
+	// Produce a diff between startCommit and HEAD by committing a change after
+	// writing the story file (story file itself becomes part of diff).
+	execSync("git add -A", { cwd: repoDir });
+	execSync("git commit -q -m change", { cwd: repoDir });
 	writeFileSync(join(repoDir, "a.txt"), "next\n");
 	execSync("git add a.txt", { cwd: repoDir });
-	execSync("git commit -q -m change", { cwd: repoDir });
+	execSync("git commit -q -m tweak", { cwd: repoDir });
 
-	const story = makeStory({ startCommit: start, acceptanceCriteria: ["AC1", "AC2", "AC3"] });
 	const executor = new FakeExecutor(
 		'<ac id="1" status="met" evidence="x"/>\n' +
 			'<ac id="2" status="met" evidence="y"/>\n' +
@@ -201,8 +233,9 @@ it("verifyStory: calls executor and returns pass when verifier says all met", as
 	);
 	const outcome = await verifyStory({
 		story,
+		storyFilePath,
 		repoRoot: repoDir,
-		agentConfig: AGENT_CONFIG,
+		providerVariant: PROVIDER_VARIANT,
 		// biome-ignore lint/suspicious/noExplicitAny: test double
 		agentExecutor: executor as any,
 	});
@@ -217,11 +250,14 @@ it("verifyStory: calls executor and returns pass when verifier says all met", as
 it("verifyStory: surfaces failedAcs when verifier says FAIL", async () => {
 	repoDir = initRepo();
 	const start = execSync("git rev-parse HEAD", { cwd: repoDir, encoding: "utf-8" }).trim();
+	const story = makeStory({ startCommit: start });
+	const storyFilePath = writeStoryFile(repoDir, story, ["Handler", "Test", "Logs"]);
+	execSync("git add -A", { cwd: repoDir });
+	execSync("git commit -q -m change", { cwd: repoDir });
 	writeFileSync(join(repoDir, "a.txt"), "next\n");
 	execSync("git add a.txt", { cwd: repoDir });
-	execSync("git commit -q -m change", { cwd: repoDir });
+	execSync("git commit -q -m tweak", { cwd: repoDir });
 
-	const story = makeStory({ startCommit: start });
 	const executor = new FakeExecutor(
 		'<ac id="1" status="met" evidence="ok"/>\n' +
 			'<ac id="2" status="unmet" evidence="no test"/>\n' +
@@ -230,8 +266,9 @@ it("verifyStory: surfaces failedAcs when verifier says FAIL", async () => {
 	);
 	const outcome = await verifyStory({
 		story,
+		storyFilePath,
 		repoRoot: repoDir,
-		agentConfig: AGENT_CONFIG,
+		providerVariant: PROVIDER_VARIANT,
 		// biome-ignore lint/suspicious/noExplicitAny: test double
 		agentExecutor: executor as any,
 	});
@@ -241,10 +278,9 @@ it("verifyStory: surfaces failedAcs when verifier says FAIL", async () => {
 });
 
 it("failedAcsToQuestions: resolves numeric ids into AC text", () => {
-	const story = makeStory({
-		acceptanceCriteria: ["Handler exists", "Test added", "Logs emitted"],
-	});
-	const qs = failedAcsToQuestions(story, [
+	const story = makeStory();
+	const acs = ["Handler exists", "Test added", "Logs emitted"];
+	const qs = failedAcsToQuestions(story, acs, [
 		{ id: "2", status: "unmet", evidence: "no test file" },
 		{ id: "3", status: "partial", evidence: "only one log call" },
 	]);
@@ -256,8 +292,9 @@ it("failedAcsToQuestions: resolves numeric ids into AC text", () => {
 });
 
 it("failedAcsToQuestions: falls back to raw id when it is not a valid index", () => {
-	const story = makeStory({ acceptanceCriteria: ["One", "Two"] });
-	const qs = failedAcsToQuestions(story, [
+	const story = makeStory();
+	const acs = ["One", "Two"];
+	const qs = failedAcsToQuestions(story, acs, [
 		{ id: "bogus", status: "unmet", evidence: "??" },
 		{ id: "99", status: "unmet", evidence: "out of range" },
 	]);

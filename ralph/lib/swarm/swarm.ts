@@ -13,7 +13,7 @@ import type {
 	SwarmConfig,
 	RunInstance,
 	StartOptions,
-	TestOptions,
+	QAOptions,
 	MergeResult,
 	MergeOptions,
 	RecoverResult,
@@ -154,11 +154,13 @@ export class SwarmManager {
 		if (!sessionResult.ok) return err(sessionResult.error!.code, sessionResult.error!.message);
 
 		// Build the orchestration command
-		const agentFlag = options?.agent ? ` --agent ${shellEscape(options.agent)}` : "";
+		const variantFlag = options?.providerVariant
+			? ` --provider-variant ${shellEscape(options.providerVariant)}`
+			: "";
 		const timeout = this.config.pane_close_timeout;
 		const guard = buildWorktreeGuard(worktreePath, actualBranch);
 		const command = buildAutoCloseCommand(
-			`${panePrefix} && cd ${shellEscape(worktreePath)} && (${guard}) && omnidev ralph start ${shellEscape(prdName)}${agentFlag}`,
+			`${panePrefix} && cd ${shellEscape(worktreePath)} && (${guard}) && omnidev ralph start ${shellEscape(prdName)}${variantFlag}`,
 			timeout,
 		);
 
@@ -223,9 +225,9 @@ export class SwarmManager {
 	}
 
 	/**
-	 * Start testing for a PRD in its worktree
+	 * Start QA for a PRD in its worktree
 	 */
-	async test(prdName: string, options?: TestOptions): Promise<Result<RunInstance>> {
+	async qa(prdName: string, options?: QAOptions): Promise<Result<RunInstance>> {
 		const runResult = await getRun(this.projectName, this.repoRoot, prdName);
 		if (!runResult.ok) return err(runResult.error!.code, runResult.error!.message);
 
@@ -245,18 +247,20 @@ export class SwarmManager {
 		const sessionResult = await this.session.ensureSession(this.sessionName);
 		if (!sessionResult.ok) return err(sessionResult.error!.code, sessionResult.error!.message);
 
-		// Build test command
-		const agentFlag = options?.agent ? ` --agent ${shellEscape(options.agent)}` : "";
+		// Build QA command
+		const variantFlag = options?.providerVariant
+			? ` --provider-variant ${shellEscape(options.providerVariant)}`
+			: "";
 		const timeout = this.config.pane_close_timeout;
 		const guard = buildWorktreeGuard(run.worktree, run.branch);
 		const command = buildAutoCloseCommand(
-			`cd ${shellEscape(run.worktree)} && (${guard}) && omnidev ralph test ${shellEscape(prdName)}${agentFlag}`,
+			`cd ${shellEscape(run.worktree)} && (${guard}) && omnidev ralph qa ${shellEscape(prdName)}${variantFlag}`,
 			timeout,
 		);
 
-		// Create pane for testing
+		// Create pane for QA
 		const paneResult = await this.session.createPane(this.sessionName, {
-			title: `test:${prdName}`,
+			title: `qa:${prdName}`,
 			command,
 		});
 		if (!paneResult.ok) return err(paneResult.error!.code, paneResult.error!.message);
@@ -308,7 +312,7 @@ export class SwarmManager {
 
 		// Run agent in the main worktree
 		const executor = new AgentExecutor();
-		const result = await executor.run(prompt, options.agentConfig, {
+		const result = await executor.run(prompt, options.providerVariant, {
 			cwd: this.cwd,
 			onOutput: options.onOutput,
 		});
@@ -359,7 +363,7 @@ export class SwarmManager {
 
 		// Run agent in the main worktree
 		const executor = new AgentExecutor();
-		const result = await executor.run(prompt, options.agentConfig, {
+		const result = await executor.run(prompt, options.providerVariant, {
 			cwd: this.cwd,
 			onOutput: options.onOutput,
 		});

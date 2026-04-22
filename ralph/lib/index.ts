@@ -5,13 +5,13 @@
  * It provides a clean API for:
  * - State management (PRDs, stories, progress)
  * - Orchestration (running agents, iteration loops)
- * - Testing (QA automation, verification)
+ * - QA (verification, QA automation)
  * - Configuration loading
  */
 
 // Types
 export type {
-	AgentConfig,
+	ProviderVariantConfig,
 	DependencyInfo,
 	DocsConfig,
 	LastRun,
@@ -27,10 +27,12 @@ export type {
 	ScriptsConfig,
 	Story,
 	StoryStatus,
-	TestingConfig,
-	TestIssue,
-	TestReport,
-	TestResult,
+	QAConfig,
+	QAPlatformConfig,
+	QAIssue,
+	QAReport,
+	QAResult,
+	VerificationConfig,
 } from "./types.js";
 
 // Schemas (Zod validation)
@@ -41,16 +43,18 @@ export {
 	LastRunSchema,
 	PRDMetricsSchema,
 	PRDSchema,
-	AgentConfigSchema,
-	TestingConfigSchema,
+	ProviderVariantConfigSchema,
+	QAConfigSchema,
+	QAPlatformConfigSchema,
 	ScriptsConfigSchema,
 	DocsConfigSchema,
+	VerificationConfigSchema,
 	ReviewConfigSchema,
 	SwarmConfigSchema,
 	RalphConfigSchema,
-	TestResultSchema,
-	TestReportSchema,
-	TestIssueSchema,
+	QAResultSchema,
+	QAReportSchema,
+	QAIssueSchema,
 	DependencyInfoSchema,
 	PRDSummarySchema,
 	validatePRD,
@@ -62,16 +66,18 @@ export {
 	type LastRunZ,
 	type PRDMetricsZ,
 	type PRDZ,
-	type AgentConfigZ,
-	type TestingConfigZ,
+	type ProviderVariantConfigZ,
+	type QAConfigZ,
+	type QAPlatformConfigZ,
 	type ScriptsConfigZ,
 	type DocsConfigZ,
+	type VerificationConfigZ,
 	type ReviewConfigZ,
 	type SwarmConfigZ,
 	type RalphConfigZ,
-	type TestResultZ,
-	type TestReportZ,
-	type TestIssueZ,
+	type QAResultZ,
+	type QAReportZ,
+	type QAIssueZ,
 	type DependencyInfoZ,
 	type PRDSummaryZ,
 } from "./schemas.js";
@@ -107,16 +113,16 @@ export {
 // Core - Config (Result-based API)
 export {
 	loadConfig,
-	getAgentConfig,
-	hasAgent,
-	getTestingConfig,
+	getProviderVariantConfig,
+	hasProviderVariant,
+	getQAConfig,
 	getScriptsConfig,
 	getReviewConfig,
 	getSwarmConfig,
-	resolveReviewAgents,
+	resolveReviewProviderVariants,
 	getStoryVerificationConfig,
-	resolveStoryVerifierAgent,
-	type ResolvedReviewAgents,
+	resolveStoryVerifierProviderVariant,
+	type ResolvedReviewProviderVariants,
 	type StoryVerificationConfig,
 } from "./core/config.js";
 
@@ -151,7 +157,7 @@ export {
 	type EngineEvent,
 	type RunOptions as EngineRunOptions,
 	type DevelopmentResult,
-	type TestRunResult,
+	type QARunResult,
 	OrchestrationEngine,
 	createEngine,
 } from "./orchestration/engine.js";
@@ -163,7 +169,7 @@ export {
 	appendToFindings,
 	buildDependencyGraph,
 	canStartPRD,
-	clearTestResults,
+	clearQAResults,
 	ensureDirectories,
 	extractAndSaveFindings,
 	extractFindings,
@@ -175,7 +181,8 @@ export {
 	getPRDSummaries,
 	getProgress,
 	getSpec,
-	getTestResultsDir,
+	getQAResultsDir,
+	getStoryFilePath,
 	getUnmetDependencies,
 	hasBlockedStories,
 	isPRDComplete,
@@ -204,6 +211,7 @@ export {
 	generateVerifierPrompt,
 	getStoryDiff,
 	parseVerifierOutput,
+	readStoryAcceptanceCriteria,
 	verifyStory,
 	type FailedAc,
 	type VerificationOutcome,
@@ -233,16 +241,18 @@ export {
 	saveVerification,
 } from "./verification.js";
 
-// Testing
+// QA
 export {
-	detectTestResult,
+	detectQAResult,
 	extractIssues,
-	generateTestPrompt,
-	generateRetestPrompt,
+	generateQAPrompt,
+	generateQAPluginPrompt,
+	generateQARetestPrompt,
 	getPreviousFailures,
-	parseTestReport,
-	saveTestReport,
-} from "./testing.js";
+	parseQAReport,
+	saveQAReport,
+	resolveQAPluginPath,
+} from "./qa.js";
 
 // Event-based API (for daemon integration)
 export {
@@ -256,7 +266,7 @@ export {
 export {
 	getPRDState,
 	startDevelopment,
-	runTests,
+	runQA,
 	getActions,
 	canTransition,
 	type RunOptions,
@@ -279,7 +289,7 @@ export {
 export {
 	type Result,
 	type StartResult,
-	type TestResult as TestingResult,
+	type QAStartResult,
 	type StateResult,
 	type TransitionResult,
 	type PRDDisplayState,
@@ -303,7 +313,7 @@ export {
 	type RunStatus,
 	type RunInstance,
 	type StartOptions,
-	type TestOptions,
+	type QAOptions,
 	type MergeResult,
 	type MergeOptions,
 	type RecoverResult,

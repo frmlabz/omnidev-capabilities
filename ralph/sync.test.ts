@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "node:test";
+import { afterEach, beforeEach, it } from "bun:test";
 import { sync } from "./sync.ts";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 
@@ -12,10 +12,10 @@ let originalCwd: string;
 
 const MOCK_CONFIG = `[ralph]
 project_name = "test"
-default_agent = "test"
+default_provider_variant = "test"
 default_iterations = 5
 
-[ralph.agents.test]
+[ralph.provider_variants.test]
 command = "echo"
 args = ["test output"]
 `;

@@ -6,7 +6,7 @@ import assert from "node:assert";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import {
 	appendProgress,
 	ensureDirectories,
@@ -84,10 +84,10 @@ describe("findPRDLocation", () => {
 		assert.strictEqual(location, "pending");
 	});
 
-	it("finds PRD in testing", async () => {
-		await createTestPRD("test-prd", {}, "testing");
+	it("finds PRD in qa", async () => {
+		await createTestPRD("test-prd", {}, "qa");
 		const location = findPRDLocation(PROJECT_NAME, REPO_ROOT, "test-prd");
-		assert.strictEqual(location, "testing");
+		assert.strictEqual(location, "qa");
 	});
 
 	it("returns null for non-existent PRD", () => {
@@ -99,17 +99,17 @@ describe("findPRDLocation", () => {
 describe("listPRDsByStatus", () => {
 	it("lists all PRDs", async () => {
 		await createTestPRD("pending-prd", {}, "pending");
-		await createTestPRD("testing-prd", {}, "testing");
+		await createTestPRD("qa-prd", {}, "qa");
 
 		const prds = await listPRDsByStatus(PROJECT_NAME, REPO_ROOT);
 		assert.strictEqual(prds.length, 2);
 		assert.ok(prds.some((p) => p.name === "pending-prd" && p.status === "pending"));
-		assert.ok(prds.some((p) => p.name === "testing-prd" && p.status === "testing"));
+		assert.ok(prds.some((p) => p.name === "qa-prd" && p.status === "qa"));
 	});
 
 	it("filters by status", async () => {
 		await createTestPRD("pending-prd", {}, "pending");
-		await createTestPRD("testing-prd", {}, "testing");
+		await createTestPRD("qa-prd", {}, "qa");
 
 		const prds = await listPRDsByStatus(PROJECT_NAME, REPO_ROOT, "pending");
 		assert.strictEqual(prds.length, 1);
@@ -125,12 +125,12 @@ describe("listPRDs", () => {
 
 	it("lists PRDs from all statuses", async () => {
 		await createTestPRD("pending-prd", {}, "pending");
-		await createTestPRD("testing-prd", {}, "testing");
+		await createTestPRD("qa-prd", {}, "qa");
 		await createTestPRD("completed-prd", {}, "completed");
 
 		const prds = await listPRDs(PROJECT_NAME, REPO_ROOT);
 		assert.ok(prds.includes("pending-prd"));
-		assert.ok(prds.includes("testing-prd"));
+		assert.ok(prds.includes("qa-prd"));
 		assert.ok(prds.includes("completed-prd"));
 	});
 });
@@ -139,20 +139,17 @@ describe("movePRD", () => {
 	it("moves PRD between status folders", async () => {
 		await createTestPRD("test-prd", {}, "pending");
 
-		await movePRD(PROJECT_NAME, REPO_ROOT, "test-prd", "testing");
+		await movePRD(PROJECT_NAME, REPO_ROOT, "test-prd", "qa");
 
-		assert.strictEqual(findPRDLocation(PROJECT_NAME, REPO_ROOT, "test-prd"), "testing");
+		assert.strictEqual(findPRDLocation(PROJECT_NAME, REPO_ROOT, "test-prd"), "qa");
 		const pendingDir = join(getStatusDir(PROJECT_NAME, REPO_ROOT, "pending"), "test-prd");
-		const testingDir = join(getStatusDir(PROJECT_NAME, REPO_ROOT, "testing"), "test-prd");
+		const qaDir = join(getStatusDir(PROJECT_NAME, REPO_ROOT, "qa"), "test-prd");
 		assert.strictEqual(existsSync(pendingDir), false);
-		assert.strictEqual(existsSync(testingDir), true);
+		assert.strictEqual(existsSync(qaDir), true);
 	});
 
 	it("throws error for non-existent PRD", async () => {
-		await assert.rejects(
-			movePRD(PROJECT_NAME, REPO_ROOT, "non-existent", "testing"),
-			/PRD not found/,
-		);
+		await assert.rejects(movePRD(PROJECT_NAME, REPO_ROOT, "non-existent", "qa"), /PRD not found/);
 	});
 
 	it("no-op when moving to same status", async () => {
@@ -164,7 +161,7 @@ describe("movePRD", () => {
 
 describe("getPRD", () => {
 	it("retrieves PRD from any status folder", async () => {
-		await createTestPRD("test-prd", { description: "Test PRD" }, "testing");
+		await createTestPRD("test-prd", { description: "Test PRD" }, "qa");
 
 		const retrieved = await getPRD(PROJECT_NAME, REPO_ROOT, "test-prd");
 		assert.strictEqual(retrieved.name, "test-prd");
@@ -219,7 +216,7 @@ describe("getNextStory", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "completed",
 					priority: 1,
 					questions: [],
@@ -237,7 +234,7 @@ describe("getNextStory", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "pending",
 					priority: 2,
 					questions: [],
@@ -245,7 +242,7 @@ describe("getNextStory", () => {
 				{
 					id: "US-002",
 					title: "Story 2",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-002.md",
 					status: "pending",
 					priority: 1,
 					questions: [],
@@ -263,7 +260,7 @@ describe("getNextStory", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "blocked",
 					priority: 1,
 					questions: ["Question?"],
@@ -271,7 +268,7 @@ describe("getNextStory", () => {
 				{
 					id: "US-002",
 					title: "Story 2",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-002.md",
 					status: "pending",
 					priority: 2,
 					questions: [],
@@ -291,7 +288,7 @@ describe("updateStoryStatus", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "pending",
 					priority: 1,
 					questions: [],
@@ -311,7 +308,7 @@ describe("updateStoryStatus", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "pending",
 					priority: 1,
 					questions: [],
@@ -363,7 +360,7 @@ describe("isPRDComplete", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "completed",
 					priority: 1,
 					questions: [],
@@ -371,7 +368,7 @@ describe("isPRDComplete", () => {
 				{
 					id: "US-002",
 					title: "Story 2",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-002.md",
 					status: "completed",
 					priority: 2,
 					questions: [],
@@ -389,7 +386,7 @@ describe("isPRDComplete", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "completed",
 					priority: 1,
 					questions: [],
@@ -397,7 +394,7 @@ describe("isPRDComplete", () => {
 				{
 					id: "US-002",
 					title: "Story 2",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-002.md",
 					status: "pending",
 					priority: 2,
 					questions: [],
@@ -417,7 +414,7 @@ describe("hasBlockedStories", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "blocked",
 					priority: 1,
 					questions: ["Question?"],
@@ -425,7 +422,7 @@ describe("hasBlockedStories", () => {
 				{
 					id: "US-002",
 					title: "Story 2",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-002.md",
 					status: "pending",
 					priority: 2,
 					questions: [],
@@ -444,7 +441,7 @@ describe("hasBlockedStories", () => {
 				{
 					id: "US-001",
 					title: "Story 1",
-					acceptanceCriteria: [],
+					promptPath: "stories/US-001.md",
 					status: "pending",
 					priority: 1,
 					questions: [],

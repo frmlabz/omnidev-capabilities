@@ -12,7 +12,7 @@ export type {
 	RunStatus,
 	RunInstance,
 	StartOptions,
-	TestOptions,
+	QAOptions,
 	MergeResult,
 	MergeOptions,
 	RecoverResult,

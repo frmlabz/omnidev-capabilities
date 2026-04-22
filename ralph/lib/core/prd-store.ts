@@ -8,7 +8,7 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PRD, PRDStatus, Story, StoryStatus, LastRun } from "../types.js";
 import { validatePRD } from "../schemas.js";
@@ -16,7 +16,7 @@ import { PRDStateMachine, StoryStateMachine } from "./state-machine.js";
 import { type Result, ok, err, ErrorCodes } from "../results.js";
 import { getStatusDir, ensureStateDirs, atomicWrite } from "./paths.js";
 
-const ALL_STATUSES: PRDStatus[] = ["pending", "in_progress", "testing", "completed"];
+const ALL_STATUSES: PRDStatus[] = ["pending", "in_progress", "qa", "completed"];
 
 /**
  * PRD Store - single source of truth for all PRD operations
@@ -382,43 +382,79 @@ export class PRDStore {
 	}
 
 	/**
-	 * Add a fix story for test failures
+	 * Add a fix story for QA failures.
+	 * Emits a story markdown file at `stories/<id>.md` and records `promptPath`.
 	 */
 	async addFixStory(
 		prdName: string,
 		issues: string[],
-		testResultsPath: string,
+		qaResultsPath: string,
 	): Promise<Result<string>> {
+		const prdDir = this.getPRDPath(prdName);
+		if (!prdDir) {
+			return err(ErrorCodes.PRD_NOT_FOUND, `PRD not found: ${prdName}`);
+		}
+
 		let storyId = "";
+		let storyFilePath = "";
+		let storyFileContent = "";
+
 		const result = await this.update(prdName, (prd) => {
-			// Find next fix story ID
 			const fixStories = prd.stories.filter((s) => s.id.startsWith("FIX-"));
 			const maxNum = fixStories.reduce((max, s) => {
 				const num = Number.parseInt(s.id.replace("FIX-", ""), 10);
 				return Number.isNaN(num) ? max : Math.max(max, num);
 			}, 0);
 			storyId = `FIX-${String(maxNum + 1).padStart(3, "0")}`;
-
 			const date = new Date().toISOString().split("T")[0];
+			const promptPath = `stories/${storyId}.md`;
+			storyFilePath = join(prdDir, promptPath);
+
+			storyFileContent =
+				[
+					"---",
+					`id: ${storyId}`,
+					`title: Fix bugs from QA (${date})`,
+					"priority: 1",
+					"dependencies: []",
+					"---",
+					"",
+				].join("\n") +
+				`## Goal
+Address QA failures reported for ${prdName}.
+
+## Scope
+- Review QA report and fix each reported issue
+- Re-run the verification checklist items that failed
+
+## Out of scope
+- New features or refactors unrelated to the listed failures
+
+## Deliverables
+1. Each failure below resolved in code
+2. All items in verification.md pass
+3. Project quality checks (lint, typecheck, tests) pass
+
+## Acceptance Criteria
+- [ ] Review QA results at \`${qaResultsPath}\`
+${issues.map((issue) => `- [ ] Fix: ${issue}`).join("\n")}
+- [ ] All items in verification.md pass
+- [ ] All project quality checks must pass
+`;
 
 			const newStory: Story = {
 				id: storyId,
-				title: `Fix bugs from testing (${date})`,
+				title: `Fix bugs from QA (${date})`,
 				status: "pending",
-				priority: 1, // High priority
-				acceptanceCriteria: [
-					`Review test results at ${testResultsPath}`,
-					...issues.map((issue) => `Fix: ${issue}`),
-					"Ensure all items in verification.md pass",
-					"All project quality checks must pass",
-				],
+				priority: 1,
+				promptPath,
 				questions: [],
 			};
 
 			prd.stories.push(newStory);
-			// Mark this PRD as coming from a testing failure so the next development-complete run
-			// skips full review and goes directly to focused verification/testing.
-			prd.testsCaughtIssue = true;
+			// Mark this PRD as coming from a QA failure so the next development-complete run
+			// skips full review and goes directly to focused verification/QA.
+			prd.qaCaughtIssue = true;
 			return prd;
 		});
 
@@ -426,37 +462,58 @@ export class PRDStore {
 			return result as unknown as Result<string>;
 		}
 
+		try {
+			mkdirSync(join(prdDir, "stories"), { recursive: true });
+			await writeFile(storyFilePath, storyFileContent);
+		} catch (error) {
+			return err(
+				ErrorCodes.UNKNOWN,
+				`Failed to write story file: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+
 		return ok(storyId);
 	}
 
 	/**
-	 * Get test results directory path
+	 * Get QA results directory path
 	 */
-	getTestResultsDir(prdName: string): string | null {
+	getQAResultsDir(prdName: string): string | null {
 		const prdPath = this.getPRDPath(prdName);
 		if (!prdPath) return null;
-		return join(prdPath, "test-results");
+		return join(prdPath, "qa-results");
 	}
 
 	/**
-	 * Clear test results directory
+	 * Clear QA results directory
 	 */
-	clearTestResults(prdName: string): Result<void> {
-		const testResultsDir = this.getTestResultsDir(prdName);
-		if (!testResultsDir) {
+	clearQAResults(prdName: string): Result<void> {
+		const qaResultsDir = this.getQAResultsDir(prdName);
+		if (!qaResultsDir) {
 			return err(ErrorCodes.PRD_NOT_FOUND, `PRD not found: ${prdName}`);
 		}
 
-		if (existsSync(testResultsDir)) {
-			rmSync(testResultsDir, { recursive: true });
+		if (existsSync(qaResultsDir)) {
+			rmSync(qaResultsDir, { recursive: true });
 		}
 
 		// Recreate empty directory structure
-		mkdirSync(testResultsDir, { recursive: true });
-		mkdirSync(join(testResultsDir, "screenshots"), { recursive: true });
-		mkdirSync(join(testResultsDir, "api-responses"), { recursive: true });
+		mkdirSync(qaResultsDir, { recursive: true });
+		mkdirSync(join(qaResultsDir, "screenshots"), { recursive: true });
+		mkdirSync(join(qaResultsDir, "api-responses"), { recursive: true });
 
 		return ok(undefined);
+	}
+
+	/**
+	 * Resolve the absolute path to a story's markdown file.
+	 */
+	getStoryFilePath(prdName: string, story: Story): string {
+		const prdPath = this.getPRDPath(prdName);
+		if (!prdPath) {
+			throw new Error(`PRD not found: ${prdName}`);
+		}
+		return join(prdPath, story.promptPath);
 	}
 
 	/**

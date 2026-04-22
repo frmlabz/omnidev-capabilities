@@ -6,7 +6,7 @@
  */
 
 import type { Result } from "../results.js";
-import type { AgentConfig } from "../types.js";
+import type { ProviderVariantConfig } from "../types.js";
 
 /**
  * Swarm configuration from [ralph.swarm] in omni.toml
@@ -62,16 +62,16 @@ export interface RunInstance {
  * Options for starting a PRD run
  */
 export interface StartOptions {
-	/** Override the agent to use */
-	agent?: string;
+	/** Override the provider variant to use */
+	providerVariant?: string;
 }
 
 /**
- * Options for test runs
+ * Options for QA runs
  */
-export interface TestOptions {
-	/** Override the agent to use */
-	agent?: string;
+export interface QAOptions {
+	/** Override the provider variant to use */
+	providerVariant?: string;
 }
 
 /**
@@ -86,8 +86,8 @@ export interface MergeResult {
  * Options for merge operations
  */
 export interface MergeOptions {
-	/** Agent configuration for the merge agent */
-	agentConfig: AgentConfig;
+	/** Provider variant configuration for the merge agent */
+	providerVariant: ProviderVariantConfig;
 	/** Callback for agent output chunks */
 	onOutput?: (data: string) => void;
 }

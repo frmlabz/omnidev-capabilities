@@ -1,5 +1,150 @@
 # Changelog
 
+## 2.1.0 — 2026-04-22
+
+### Added
+
+- **Rich story files** — Each story lives as a single markdown file at `stories/<id>.md` inside the PRD directory, with frontmatter (`id`, `title`, `priority`, `dependencies`) and sections for Goal, Scope, Out of scope, Constraints, Suggested files, Deliverables, and `## Acceptance Criteria`. The story file is the primary artifact the dev agent receives — it replaces the runtime-composed generic prompt. Acceptance criteria are short (3–8 items), code-level, and mechanically checkable against the diff; behavioral checks belong in QA.
+- **Per-story verifier as a Ralph-owned orchestration step** — After every `<promise>COMPLETE</promise>` signal, Ralph calls the configured provider variant directly (not a subagent) with the story file content and `git diff <story-start-sha>..HEAD`. The verifier emits `<check id=... status="pass|fail" evidence=.../>` tags and a `<verification-result>PASS|FAIL</verification-result>` signal. On FAIL the story reverts to `in_progress` with failed-check evidence appended as questions; budget is one retry, then auto-block. Prompt lives at `lib/orchestration/verifier-prompt.md`.
+- **QA platform plugin system** — Projects declare `[ralph.qa.platforms.<name>]` entries. Each platform may name a capability plugin via `plugin = "<id>"`, which resolves to `$OMNIDEV_CAPABILITIES_ROOT/<id>/ralph-qa.md` and is injected verbatim. The QA session runs in two steps: general pass (instructions + story ACs), then platform plugin pass (only if platforms with plugins are declared). Both must pass for the PRD to reach `completed`. Missing plugin files are hard failures.
+- **`ralph migrate` command** — One-way cutover for legacy PRD state under `$XDG_STATE_HOME/omnidev/ralph/`. Renames `prds/testing/` → `prds/qa/`, rewrites `status: "testing"` → `"qa"` and `testsCaughtIssue` → `qaCaughtIssue` in every `prd.json`, converts stories with legacy `acceptanceCriteria: string[]` into `stories/<id>.md` files with a `## Acceptance Criteria` section, writes `promptPath` onto each story, renames `test-results/` → `qa-results/`, and quarantines unmigratable PRD directories to `old/` with a `MIGRATION-REPORT.md`. Idempotent.
+
+### Changed
+
+- **Acceptance criteria source of truth moved to story files** — Runtime code (review prompts, verification checklist generation, per-story verifier) reads `## Acceptance Criteria` from `stories/<id>.md` via `readStoryAcceptanceCriteria()`. The 3k-character spec truncation in dev prompts is removed — the story file is already right-scoped.
+- **Agents renamed to provider variants** — `[ralph.agents.X]` sections in `omni.toml` are now `[ralph.provider_variants.X]`. These are Ralph-owned LLM launch profiles (command + args) and do not map to `agent.toml`. The `AgentConfig` type is now `ProviderVariantConfig`. Missing provider variants are hard failures at load time with a message naming the missing key and the setting that referenced it.
+- **Testing renamed to QA throughout** — Mechanical rename; no behavioral change. State machine `testing` → `qa`, `lib/testing.ts` → `lib/qa.ts`, `runTesting()` → `runQA()`, `generateTestPrompt()` → `generateQAPrompt()`, signal `<test-result>` → `<qa-result>` (with `PRD_FAILED` → `QA_FAILED`), directory `test-results/` → `qa-results/`, CLI `ralph test <prd>` → `ralph qa <prd>`, PRD field `testsCaughtIssue` → `qaCaughtIssue`, event `test_complete` → `qa_complete`, status emoji `🔶` → `🟣`.
+
+### Breaking Changes
+
+#### 1. `[ralph.agents.*]` → `[ralph.provider_variants.*]` and associated config key renames
+
+All Ralph config keys that selected an LLM launch profile were renamed to use `provider_variant` terminology, and the section name in `omni.toml` changed:
+
+| Before | After |
+|--------|-------|
+| `[ralph.agents.claude-opus]` | `[ralph.provider_variants.claude-opus]` |
+| `default_agent` | `default_provider_variant` |
+| `verification_agent` | `verification_provider_variant` |
+| `story_verifier_agent` | `[ralph.verification].story_verifier_provider_variant` |
+| `[ralph.review].agent` | `[ralph.review].provider_variant` |
+| `[ralph.review].fix_agent` | `[ralph.review].fix_provider_variant` |
+| `[ralph.review].finalize_agent` | `[ralph.review].finalize_provider_variant` |
+| `[ralph.review].review_agent` | `[ralph.review].review_provider_variant` |
+| `[ralph.docs].agent` | `[ralph.docs].provider_variant` |
+| `[ralph.swarm].merge_agent` | `[ralph.swarm].merge_provider_variant` |
+
+`agent.toml` remains owned exclusively by Claude/Codex subagent systems and no longer governs Ralph orchestration steps, the story verifier, provider selection, or QA plugins. The `--agent` CLI flag is now `--provider-variant`.
+
+#### 2. Story shape: `acceptanceCriteria` dropped, `promptPath` added
+
+`prd.json` story records no longer carry `acceptanceCriteria: string[]`. They now carry `promptPath: "stories/<id>.md"`; the story file is the source of truth for scope, deliverables, and acceptance criteria. Runtime code has no legacy fallback — an unmigrated PRD will fail at runtime. Story files missing a `## Acceptance Criteria` section are a hard failure.
+
+#### 3. `testing` → `qa` across state, config, CLI, and signals
+
+| Area | Before | After |
+|------|--------|-------|
+| PRD status | `testing` | `qa` |
+| Status directory | `prds/testing/` | `prds/qa/` |
+| CLI command | `omnidev ralph test <prd>` | `omnidev ralph qa <prd>` |
+| Swarm subcommand | `ralph swarm test <prd>` | `ralph swarm qa <prd>` |
+| Config section | `[ralph.testing]` | `[ralph.qa]` |
+| Config key | `test_iterations` | `qa_iterations` |
+| Config key | `web_testing_enabled` | removed (replaced by `[ralph.qa.platforms.*]`) |
+| PRD field | `testsCaughtIssue` | `qaCaughtIssue` |
+| Per-PRD results dir | `test-results/` | `qa-results/` |
+| Signal (pass) | `<test-result>PRD_VERIFIED</test-result>` | `<qa-result>PRD_VERIFIED</qa-result>` |
+| Signal (fail) | `<test-result>PRD_FAILED</test-result>` | `<qa-result>QA_FAILED</qa-result>` |
+| Source file | `lib/testing.ts` | `lib/qa.ts` |
+| Exported fn | `runTesting`, `generateTestPrompt` | `runQA`, `generateQAPrompt` |
+| Engine event | `test_complete` | `qa_complete` |
+
+No aliases are provided. Update scripts, hooks, and anything parsing PRD state.
+
+### Migration Guide
+
+`ralph migrate` handles the state-side cutover. Config and scripts must still be updated by hand.
+
+1. **Update `omni.toml`** — rename every `[ralph.agents.X]` to `[ralph.provider_variants.X]` and rename each config key per the breaking-changes table above:
+
+   ```diff
+    [ralph]
+    project_name = "my-app"
+   -default_agent = "claude-opus"
+   -verification_agent = "claude-haiku"
+   +default_provider_variant = "claude-opus"
+   +verification_provider_variant = "claude-haiku"
+
+   -[ralph.agents.claude-opus]
+   +[ralph.provider_variants.claude-opus]
+    command = "claude"
+    args = ["--model", "claude-opus-4-7", "--print"]
+
+    [ralph.review]
+   -agent = "claude-opus"
+   -fix_agent = "claude-opus"
+   -finalize_agent = "claude-opus"
+   -review_agent = "codex-high"
+   +provider_variant = "claude-opus"
+   +fix_provider_variant = "claude-opus"
+   +finalize_provider_variant = "claude-opus"
+   +review_provider_variant = "codex-high"
+
+    [ralph.docs]
+   -agent = "claude-opus"
+   +provider_variant = "claude-opus"
+
+    [ralph.swarm]
+   -merge_agent = "claude-opus"
+   +merge_provider_variant = "claude-opus"
+   ```
+
+2. **Replace `[ralph.testing]` with `[ralph.qa]`** — and declare platforms if QA needs a plugin:
+
+   ```diff
+   -[ralph.testing]
+   -test_iterations = 3
+   -web_testing_enabled = true
+   +[ralph.qa]
+   +qa_iterations = 3
+   +instructions = """
+   +Free-text QA instructions: how to bring up services, what flows to exercise.
+   +"""
+   +
+   +[ralph.qa.platforms.web]
+   +plugin = "browser-testing"
+   +
+   +[ralph.qa.platforms.api]
+   +# no plugin — LLM uses instructions + story acceptance criteria
+   ```
+
+3. **Opt in to the per-story verifier (optional, defaults apply)** — the verifier runs by default with `claude-haiku`. To override:
+
+   ```toml
+   [ralph.verification]
+   story_verifier_provider_variant = "claude-haiku"
+   ```
+
+4. **Run the state migration:**
+
+   ```bash
+   omnidev ralph migrate
+   ```
+
+   This renames `prds/testing/` → `prds/qa/`, rewrites PRD JSON (`status`, `testsCaughtIssue`), writes `stories/<id>.md` files for every legacy story, drops `acceptanceCriteria` from `prd.json`, and renames `test-results/` → `qa-results/`. Review the printed report; any quarantined PRDs now live under `<state-root>/<project>/old/` with a `MIGRATION-REPORT.md` explaining why.
+
+5. **Review and edit each generated story file** — `ralph migrate` writes a stub with the legacy ACs under `## Acceptance Criteria` and placeholder content for the other sections. Before running Ralph against a migrated PRD, fill in Goal, Scope, Out of scope, Constraints, Suggested files, and Deliverables so the dev agent has a right-scoped prompt.
+
+6. **Update scripts and CI** — replace:
+   - `omnidev ralph test <prd>` → `omnidev ralph qa <prd>`
+   - `omnidev ralph swarm test <prd>` → `omnidev ralph swarm qa <prd>`
+   - `--agent <name>` → `--provider-variant <name>`
+   - Anything that reads `testsCaughtIssue`, `status == "testing"`, `test-results/`, `<test-result>` signals, or `[ralph.agents.*]`.
+
+7. **Declare QA plugins** (optional) — if a capability ships a `ralph-qa.md` (e.g. `browser-testing`), point a platform at it via `[ralph.qa.platforms.<name>] plugin = "<capability-id>"`. Ralph resolves `$OMNIDEV_CAPABILITIES_ROOT/<capability-id>/ralph-qa.md`; a missing file is a hard failure.
+
+There is no runtime fallback for legacy `acceptanceCriteria` arrays or `"testing"` status. Un-migrated PRDs will fail at load.
+
 ## 2.0.0 — 2026-04-21
 
 ### Added

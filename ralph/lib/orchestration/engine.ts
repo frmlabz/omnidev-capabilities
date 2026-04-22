@@ -9,33 +9,34 @@ import { existsSync } from "node:fs";
 import { spawn, execSync } from "node:child_process";
 import { resolve } from "node:path";
 import { join } from "node:path";
-import type { PRD, AgentConfig, TestReport, RalphConfig } from "../types.js";
+import type { PRD, ProviderVariantConfig, QAReport, RalphConfig } from "../types.js";
 import type { Result } from "../results.js";
 import { ok, err, ErrorCodes } from "../results.js";
 import { type PRDStore, getDefaultStore } from "../core/prd-store.js";
 import {
 	loadConfig,
-	getAgentConfig,
+	getProviderVariantConfig,
 	getScriptsConfig,
-	getTestingConfig,
+	getQAConfig,
 	getReviewConfig,
-	resolveReviewAgents,
+	resolveReviewProviderVariants,
 	getStoryVerificationConfig,
-	resolveStoryVerifierAgent,
+	resolveStoryVerifierProviderVariant,
 } from "../core/config.js";
 import { type Logger, getLogger } from "../core/logger.js";
 import { type AgentExecutor, getAgentExecutor } from "./agent-runner.js";
 import { generatePrompt } from "../prompt.js";
 import {
-	generateTestPrompt,
-	generateRetestPrompt,
+	generateQAPrompt,
+	generateQAPluginPrompt,
+	generateQARetestPrompt,
 	getPreviousFailures,
-	detectTestResult,
+	detectQAResult,
 	detectHealthCheckResult,
 	extractIssues,
-	parseTestReport,
-	saveTestReport,
-} from "../testing.js";
+	parseQAReport,
+	saveQAReport,
+} from "../qa.js";
 import {
 	generateVerification,
 	generateSimpleVerification,
@@ -43,7 +44,12 @@ import {
 } from "../verification.js";
 import { extractAndSaveFindings } from "../state.js";
 import { ReviewEngine } from "./review-engine.js";
-import { captureCurrentCommit, verifyStory, failedAcsToQuestions } from "./story-verifier.js";
+import {
+	captureCurrentCommit,
+	verifyStory,
+	failedAcsToQuestions,
+	readStoryAcceptanceCriteria,
+} from "./story-verifier.js";
 
 /**
  * Engine context - dependencies injected into the engine
@@ -76,7 +82,7 @@ export type EngineEvent =
 			result: "success" | "blocked" | "max_iterations" | "error";
 			message: string;
 	  }
-	| { type: "test_complete"; result: "verified" | "failed" | "unknown"; issues?: string[] }
+	| { type: "qa_complete"; result: "verified" | "failed" | "unknown"; issues?: string[] }
 	| { type: "error"; error: string }
 	| { type: "review_start"; phase: "first" | "external" | "second" | "finalize" }
 	| { type: "review_agent_complete"; reviewType: string; decision: string; findingsCount: number }
@@ -96,8 +102,8 @@ export type EngineEvent =
  * Options for running orchestration
  */
 export interface RunOptions {
-	/** Override the default agent */
-	agent?: string;
+	/** Override the default provider variant */
+	providerVariant?: string;
 	/** Callback for events */
 	onEvent?: (event: EngineEvent) => void;
 	/** Abort signal */
@@ -109,7 +115,7 @@ export interface RunOptions {
  */
 export interface DevelopmentResult {
 	prdName: string;
-	outcome: "moved_to_testing" | "blocked" | "max_iterations" | "aborted";
+	outcome: "moved_to_qa" | "blocked" | "max_iterations" | "aborted";
 	message: string;
 	storiesCompleted: number;
 	storiesRemaining: number;
@@ -118,12 +124,12 @@ export interface DevelopmentResult {
 }
 
 /**
- * Result of test run
+ * Result of QA run
  */
-export interface TestRunResult {
+export interface QARunResult {
 	prdName: string;
 	outcome: "verified" | "failed" | "unknown" | "health_check_failed";
-	report: TestReport;
+	report: QAReport;
 	issues?: string[];
 }
 
@@ -202,26 +208,26 @@ export class OrchestrationEngine {
 		}
 		const config = configResult.data!;
 
-		// Get agent config
-		const agentConfigResult = getAgentConfig(config, options.agent);
-		if (!agentConfigResult.ok) {
-			return err(agentConfigResult.error!.code, agentConfigResult.error!.message);
+		// Get provider variant config
+		const variantResult = getProviderVariantConfig(config, options.providerVariant);
+		if (!variantResult.ok) {
+			return err(variantResult.error!.code, variantResult.error!.message);
 		}
-		const agentConfig = agentConfigResult.data!;
+		const agentConfig = variantResult.data!;
 		const maxIterations = config.default_iterations;
 
 		// Resolve per-story verifier (optional). When disabled, runs are unchanged.
 		const storyVerification = getStoryVerificationConfig(config);
-		let storyVerifierAgent: AgentConfig | null = null;
+		let storyVerifierVariant: ProviderVariantConfig | null = null;
 		if (storyVerification.enabled) {
-			const resolved = resolveStoryVerifierAgent(config);
+			const resolved = resolveStoryVerifierProviderVariant(config);
 			if (!resolved.ok) {
 				log(
 					"warn",
-					`Per-story verification is enabled but agent could not be resolved: ${resolved.error!.message}. Disabling for this run.`,
+					`Per-story verification is enabled but provider variant could not be resolved: ${resolved.error!.message}. Disabling for this run.`,
 				);
 			} else {
-				storyVerifierAgent = resolved.data!;
+				storyVerifierVariant = resolved.data!;
 			}
 		}
 
@@ -232,7 +238,7 @@ export class OrchestrationEngine {
 		}
 		log(
 			"info",
-			`Using agent: ${options.agent ?? config.default_agent}, max iterations: ${maxIterations}`,
+			`Using provider variant: ${options.providerVariant ?? config.default_provider_variant}, max iterations: ${maxIterations}`,
 		);
 
 		// Mark PRD as started
@@ -295,8 +301,8 @@ export class OrchestrationEngine {
 				const completedCount = prd.stories.filter((s) => s.status === "completed").length;
 				return ok({
 					prdName,
-					outcome: "moved_to_testing",
-					message: "PRD moved to testing",
+					outcome: "moved_to_qa",
+					message: "PRD moved to QA",
 					storiesCompleted: completedCount,
 					storiesRemaining: 0,
 				});
@@ -425,15 +431,17 @@ export class OrchestrationEngine {
 			if (storyMarkedComplete) {
 				// Per-story verifier: check the diff against the story's acceptance criteria
 				// before accepting completion. One retry, then block.
-				if (storyVerifierAgent) {
+				if (storyVerifierVariant) {
 					const latestStory = (await this.ctx.store.get(prdName)).data!.stories.find(
 						(s) => s.id === story.id,
 					)!;
+					const storyFilePath = this.ctx.store.getStoryFilePath(prdName, latestStory);
 					emit({ type: "story_verification_start", prdName, storyId: story.id });
 					const outcome = await verifyStory({
 						story: latestStory,
+						storyFilePath,
 						repoRoot: this.ctx.repoRoot,
-						agentConfig: storyVerifierAgent,
+						providerVariant: storyVerifierVariant,
 						agentExecutor: this.ctx.agentExecutor,
 						signal,
 					});
@@ -448,7 +456,8 @@ export class OrchestrationEngine {
 
 					if (!outcome.pass) {
 						const attempts = latestStory.verificationAttempts ?? 0;
-						const newQuestions = failedAcsToQuestions(latestStory, outcome.failedAcs);
+						const acs = readStoryAcceptanceCriteria(storyFilePath);
+						const newQuestions = failedAcsToQuestions(latestStory, acs, outcome.failedAcs);
 						const summary = outcome.failedAcs.map((fa) => `${fa.status} AC ${fa.id}`).join(", ");
 
 						if (attempts >= 1) {
@@ -502,7 +511,7 @@ export class OrchestrationEngine {
 				log("info", `Story ${story.id} completed`);
 				emit({ type: "story_update", prdName, storyId: story.id, status: "completed" });
 
-				// Moving to testing requires BOTH the agent's completion signal AND all stories done
+				// Moving to QA requires BOTH the agent's completion signal AND all stories done
 				if (this.ctx.agentExecutor.hasCompletionSignal(result.output)) {
 					const isCompleteResult = await this.ctx.store.isComplete(prdName);
 					if (isCompleteResult.ok && isCompleteResult.data) {
@@ -511,8 +520,8 @@ export class OrchestrationEngine {
 
 						return ok({
 							prdName,
-							outcome: "moved_to_testing",
-							message: "PRD moved to testing",
+							outcome: "moved_to_qa",
+							message: "PRD moved to QA",
 							storiesCompleted: prd.stories.length,
 							storiesRemaining: 0,
 						});
@@ -545,7 +554,7 @@ export class OrchestrationEngine {
 	private async handleDevelopmentComplete(
 		prdName: string,
 		_prd: PRD,
-		agentConfig: AgentConfig,
+		agentConfig: ProviderVariantConfig,
 		emit: (event: EngineEvent) => void,
 		signal?: AbortSignal,
 	): Promise<void> {
@@ -564,26 +573,26 @@ export class OrchestrationEngine {
 			const inferredPostFailureFixCycle = latestPrd.stories.some((story) =>
 				story.id.startsWith("FIX-"),
 			);
-			const shouldRunReview = latestPrd.testsCaughtIssue !== true && !inferredPostFailureFixCycle;
+			const shouldRunReview = latestPrd.qaCaughtIssue !== true && !inferredPostFailureFixCycle;
 
 			if (!shouldRunReview) {
 				emit({
 					type: "log",
 					level: "info",
 					message:
-						latestPrd.testsCaughtIssue === true
+						latestPrd.qaCaughtIssue === true
 							? "Skipping full review pipeline because this PRD is in post-failure fix mode."
-							: "Skipping full review pipeline because this PRD has FIX stories from a prior test failure.",
+							: "Skipping full review pipeline because this PRD has FIX stories from a prior QA failure.",
 				});
 			}
 
 			if (reviewConfig.enabled && shouldRunReview) {
-				const agentsResult = resolveReviewAgents(configResult.data!, reviewConfig);
-				if (!agentsResult.ok) {
+				const variantsResult = resolveReviewProviderVariants(configResult.data!, reviewConfig);
+				if (!variantsResult.ok) {
 					emit({
 						type: "log",
 						level: "warn",
-						message: `Failed to resolve review agents: ${agentsResult.error?.message}`,
+						message: `Failed to resolve review provider variants: ${variantsResult.error?.message}`,
 					});
 				} else {
 					const reviewEngine = new ReviewEngine(this.ctx);
@@ -592,7 +601,7 @@ export class OrchestrationEngine {
 						prdName,
 						prd,
 						configResult.data!,
-						agentsResult.data!,
+						variantsResult.data!,
 						reviewConfig,
 						emit,
 						signal,
@@ -609,19 +618,22 @@ export class OrchestrationEngine {
 		}
 
 		const oldStatus = this.ctx.store.findLocation(prdName) ?? "pending";
-		await this.ctx.store.transition(prdName, "testing");
-		emit({ type: "state_change", prdName, from: oldStatus, to: "testing" });
+		await this.ctx.store.transition(prdName, "qa");
+		emit({ type: "state_change", prdName, from: oldStatus, to: "qa" });
 
-		// Generate verification — use verification_agent if configured, else fall back to development agentConfig
-		let verificationAgentConfig = agentConfig;
-		if (configResult.ok && configResult.data!.verification_agent) {
-			const vResult = getAgentConfig(configResult.data!, configResult.data!.verification_agent);
+		// Generate verification — use verification_provider_variant if configured, else fall back to development variant
+		let verificationVariant = agentConfig;
+		if (configResult.ok && configResult.data!.verification_provider_variant) {
+			const vResult = getProviderVariantConfig(
+				configResult.data!,
+				configResult.data!.verification_provider_variant,
+			);
 			if (vResult.ok) {
-				verificationAgentConfig = vResult.data!;
+				verificationVariant = vResult.data!;
 			}
 		}
 		try {
-			const runAgentFn = async (prompt: string, config: AgentConfig) => {
+			const runAgentFn = async (prompt: string, config: ProviderVariantConfig) => {
 				const result = await this.ctx.agentExecutor.run(prompt, config, { signal });
 				return { output: result.output, exitCode: result.exitCode };
 			};
@@ -629,7 +641,7 @@ export class OrchestrationEngine {
 				this.ctx.projectName,
 				this.ctx.repoRoot,
 				prdName,
-				verificationAgentConfig,
+				verificationVariant,
 				runAgentFn,
 			);
 		} catch {
@@ -640,20 +652,20 @@ export class OrchestrationEngine {
 			timestamp: new Date().toISOString(),
 			storyId: "ALL",
 			reason: "completed",
-			summary: "All stories completed. PRD moved to testing.",
+			summary: "All stories completed. PRD moved to QA.",
 		});
 
 		emit({
 			type: "complete",
 			result: "success",
-			message: "PRD moved to testing",
+			message: "PRD moved to QA",
 		});
 	}
 
 	/**
-	 * Run testing for a PRD
+	 * Run QA for a PRD
 	 */
-	async runTesting(prdName: string, options: RunOptions = {}): Promise<Result<TestRunResult>> {
+	async runQA(prdName: string, options: RunOptions = {}): Promise<Result<QARunResult>> {
 		const signal = options.signal ?? this.ctx.signal;
 		const emit = options.onEvent ?? (() => {});
 		const log = (level: "info" | "warn" | "error", message: string) => {
@@ -668,27 +680,27 @@ export class OrchestrationEngine {
 		}
 		const config = configResult.data!;
 
-		// Get agent config
-		const agentConfigResult = getAgentConfig(config, options.agent);
-		if (!agentConfigResult.ok) {
-			return err(agentConfigResult.error!.code, agentConfigResult.error!.message);
+		// Get provider variant config
+		const variantResult = getProviderVariantConfig(config, options.providerVariant);
+		if (!variantResult.ok) {
+			return err(variantResult.error!.code, variantResult.error!.message);
 		}
-		const agentConfig = agentConfigResult.data!;
+		const agentConfig = variantResult.data!;
 
 		const status = this.ctx.store.findLocation(prdName);
 		if (!status) {
 			return err(ErrorCodes.PRD_NOT_FOUND, `PRD not found: ${prdName}`);
 		}
 
-		if (status !== "testing") {
-			log("warn", `PRD "${prdName}" is in ${status} status (not testing)`);
+		if (status !== "qa") {
+			log("warn", `PRD "${prdName}" is in ${status} status (not qa)`);
 		}
 
 		// Ensure verification exists
 		if (!hasVerification(this.ctx.projectName, this.ctx.repoRoot, prdName)) {
 			log("info", "Generating verification checklist...");
 			try {
-				const runAgentFn = async (prompt: string, cfg: AgentConfig) => {
+				const runAgentFn = async (prompt: string, cfg: ProviderVariantConfig) => {
 					const result = await this.ctx.agentExecutor.run(prompt, cfg, { signal });
 					return { output: result.output, exitCode: result.exitCode };
 				};
@@ -704,7 +716,7 @@ export class OrchestrationEngine {
 			}
 		}
 
-		// Check for previous failures (focused retest)
+		// Check for previous failures (focused reQA)
 		const previousFailures = await getPreviousFailures(
 			this.ctx.projectName,
 			this.ctx.repoRoot,
@@ -713,15 +725,15 @@ export class OrchestrationEngine {
 		const isFocusedRetest = previousFailures !== null && previousFailures.length > 0;
 
 		if (isFocusedRetest) {
-			log("info", `Found ${previousFailures.length} previous failure(s) - running focused retest`);
+			log("info", `Found ${previousFailures.length} previous failure(s) - running focused reQA`);
 		} else {
-			// Clear previous results only for full test runs
-			this.ctx.store.clearTestResults(prdName);
+			// Clear previous results only for full QA runs
+			this.ctx.store.clearQAResults(prdName);
 		}
 
 		log(
 			"info",
-			`Starting ${isFocusedRetest ? "focused retest" : "testing"} for PRD: ${prdName} (cwd: ${process.cwd()})`,
+			`Starting ${isFocusedRetest ? "focused reQA" : "QA"} for PRD: ${prdName} (cwd: ${process.cwd()})`,
 		);
 		const cwdCheck = this.validateWorkingDirectory(prdName, log);
 		if (!cwdCheck.ok) {
@@ -730,9 +742,9 @@ export class OrchestrationEngine {
 
 		// Run scripts
 		const scripts = getScriptsConfig(config);
-		const testingConfig = getTestingConfig(config);
-		const healthTimeout = testingConfig.health_check_timeout ?? 30;
-		const maxHealthFixAttempts = testingConfig.max_health_fix_attempts ?? 3;
+		const qaConfig = getQAConfig(config);
+		const healthTimeout = qaConfig.health_check_timeout ?? 30;
+		const maxHealthFixAttempts = qaConfig.max_health_fix_attempts ?? 3;
 
 		// Healthcheck fix loop: teardown → setup → start → healthcheck, retry with fix agent on failure
 		for (let attempt = 1; attempt <= maxHealthFixAttempts; attempt++) {
@@ -811,16 +823,16 @@ export class OrchestrationEngine {
 
 		// Generate prompt (focused or full)
 		const prompt = isFocusedRetest
-			? await generateRetestPrompt(
+			? await generateQARetestPrompt(
 					this.ctx.projectName,
 					this.ctx.repoRoot,
 					prdName,
 					previousFailures,
 					config,
 				)
-			: await generateTestPrompt(this.ctx.projectName, this.ctx.repoRoot, prdName, config);
+			: await generateQAPrompt(this.ctx.projectName, this.ctx.repoRoot, prdName, config);
 
-		log("info", `Spawning test agent... (cwd: ${process.cwd()})`);
+		log("info", `Spawning QA agent (step 1)... (cwd: ${process.cwd()})`);
 		const result = await this.ctx.agentExecutor.run(prompt, agentConfig, {
 			stream: true,
 			signal,
@@ -828,14 +840,37 @@ export class OrchestrationEngine {
 		});
 
 		emit({ type: "agent_exit", code: result.exitCode });
-		log("info", `Agent exit code: ${result.exitCode}`);
+		log("info", `Step 1 agent exit code: ${result.exitCode}`);
+
+		// Step 2: platform plugin pass (per FR-5) — only if platforms with plugins are declared
+		let combinedOutput = result.output;
+		if (!isFocusedRetest) {
+			const pluginPrompt = await generateQAPluginPrompt(
+				this.ctx.projectName,
+				this.ctx.repoRoot,
+				prdName,
+				config,
+				result.output,
+			);
+			if (pluginPrompt) {
+				log("info", "Spawning QA agent (step 2 — platform plugin pass)...");
+				const pluginResult = await this.ctx.agentExecutor.run(pluginPrompt, agentConfig, {
+					stream: true,
+					signal,
+					onOutput: (data) => emit({ type: "agent_output", data }),
+				});
+				emit({ type: "agent_exit", code: pluginResult.exitCode });
+				log("info", `Step 2 agent exit code: ${pluginResult.exitCode}`);
+				combinedOutput = `${result.output}\n\n${pluginResult.output}`;
+			}
+		}
 
 		// Parse results
-		const report = parseTestReport(result.output, prdName);
-		const testResult = detectTestResult(result.output);
-		const issues = extractIssues(result.output);
+		const report = parseQAReport(combinedOutput, prdName);
+		const qaResult = detectQAResult(combinedOutput);
+		const issues = extractIssues(combinedOutput);
 
-		await saveTestReport(this.ctx.projectName, this.ctx.repoRoot, prdName, report);
+		await saveQAReport(this.ctx.projectName, this.ctx.repoRoot, prdName, report);
 
 		// Helper to run teardown
 		const runTeardown = async () => {
@@ -844,24 +879,24 @@ export class OrchestrationEngine {
 		};
 
 		// Handle result
-		if (testResult === "verified") {
+		if (qaResult === "verified") {
 			log("info", "PRD_VERIFIED - moving to completed");
 			await extractAndSaveFindings(this.ctx.projectName, this.ctx.repoRoot, prdName);
 
-			// Update documentation when enabled — use docs.agent if configured, else fall back to development agentConfig
+			// Update documentation when enabled — use docs.provider_variant if configured, else fall back to development variant
 			const docsConfig = config.docs;
 			if (docsConfig?.path && docsConfig.auto_update !== false) {
 				const docsPath = join(this.ctx.repoRoot, docsConfig.path);
-				let docsAgentConfig = agentConfig;
-				if (docsConfig.agent) {
-					const dResult = getAgentConfig(config, docsConfig.agent);
+				let docsVariant = agentConfig;
+				if (docsConfig.provider_variant) {
+					const dResult = getProviderVariantConfig(config, docsConfig.provider_variant);
 					if (dResult.ok) {
-						docsAgentConfig = dResult.data!;
+						docsVariant = dResult.data!;
 					}
 				}
 				try {
 					const { updateDocumentation } = await import("../documentation.js");
-					const runAgentFn = async (p: string, c: AgentConfig) => {
+					const runAgentFn = async (p: string, c: ProviderVariantConfig) => {
 						const r = await this.ctx.agentExecutor.run(p, c, { signal });
 						return { output: r.output, exitCode: r.exitCode };
 					};
@@ -870,7 +905,7 @@ export class OrchestrationEngine {
 						this.ctx.repoRoot,
 						prdName,
 						docsPath,
-						docsAgentConfig,
+						docsVariant,
 						runAgentFn,
 					);
 					if (docResults.updated.length > 0) {
@@ -889,18 +924,18 @@ export class OrchestrationEngine {
 				}
 			}
 
-			const oldStatus = this.ctx.store.findLocation(prdName) ?? "testing";
+			const oldStatus = this.ctx.store.findLocation(prdName) ?? "qa";
 			await this.ctx.store.transition(prdName, "completed");
 			emit({ type: "state_change", prdName, from: oldStatus, to: "completed" });
-			emit({ type: "test_complete", result: "verified" });
+			emit({ type: "qa_complete", result: "verified" });
 
 			// Auto-commit any uncommitted changes (docs, config, etc.)
 			try {
-				const commitAgentResult = getAgentConfig(config);
-				if (commitAgentResult.ok) {
+				const commitVariantResult = getProviderVariantConfig(config);
+				if (commitVariantResult.ok) {
 					const commitPrompt = `Check \`git status\`. If there are any uncommitted changes (staged or unstaged, including untracked files), stage them all and commit using the format: \`feat: [${prdName}] - completion updates\`. If there are no changes, do nothing. Do not push.\n\nWhen done, output:\n<promise>COMPLETE</promise>`;
 					log("info", "Checking for uncommitted changes...");
-					await this.ctx.agentExecutor.run(commitPrompt, commitAgentResult.data!, {
+					await this.ctx.agentExecutor.run(commitPrompt, commitVariantResult.data!, {
 						signal,
 					});
 				}
@@ -917,16 +952,16 @@ export class OrchestrationEngine {
 			});
 		}
 
-		if (testResult === "failed") {
+		if (qaResult === "failed") {
 			log("warn", `PRD_FAILED - ${issues.length} issues found`);
 
-			const testResultsRelPath = "test-results/report.md";
-			await this.ctx.store.addFixStory(prdName, issues, testResultsRelPath);
+			const qaResultsRelPath = "qa-results/report.md";
+			await this.ctx.store.addFixStory(prdName, issues, qaResultsRelPath);
 
-			const oldStatus = this.ctx.store.findLocation(prdName) ?? "testing";
+			const oldStatus = this.ctx.store.findLocation(prdName) ?? "qa";
 			await this.ctx.store.transition(prdName, "in_progress");
 			emit({ type: "state_change", prdName, from: oldStatus, to: "in_progress" });
-			emit({ type: "test_complete", result: "failed", issues });
+			emit({ type: "qa_complete", result: "failed", issues });
 
 			await runTeardown();
 
@@ -941,8 +976,8 @@ export class OrchestrationEngine {
 		// Unknown result
 		await runTeardown();
 
-		log("warn", "No clear test result signal detected");
-		emit({ type: "test_complete", result: "unknown" });
+		log("warn", "No clear QA result signal detected");
+		emit({ type: "qa_complete", result: "unknown" });
 
 		return ok({
 			prdName,
@@ -1039,9 +1074,9 @@ export class OrchestrationEngine {
 		maxAttempts: number,
 	): string {
 		const projectInstructions =
-			config.testing?.project_verification_instructions ||
+			config.qa?.project_verification_instructions ||
 			"Run project quality checks (lint, typecheck, tests) to ensure code quality.";
-		const testingInstructions = config.testing?.instructions || "";
+		const qaInstructions = config.qa?.instructions || "";
 		const scripts = config.scripts;
 
 		return `# Healthcheck Fix Task (Attempt ${attempt}/${maxAttempts})
@@ -1060,7 +1095,7 @@ ${healthCheckLogs || "(no output captured)"}
 
 **Project Verification Instructions:** ${projectInstructions}
 
-${testingInstructions ? `**Testing Instructions:** ${testingInstructions}\n` : ""}
+${qaInstructions ? `**QA Instructions:** ${qaInstructions}\n` : ""}
 
 ## Script Paths
 

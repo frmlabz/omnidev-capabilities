@@ -8,7 +8,8 @@
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { findPRDLocation, getSpec } from "./state.js";
+import { findPRDLocation, getSpec, getStoryFilePath } from "./state.js";
+import { readStoryAcceptanceCriteria } from "./orchestration/story-verifier.js";
 import type { PRD, ReviewFinding, ReviewRoundResult } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,31 @@ const SUBAGENTS_DIR = join(__dirname, "..", "subagents", "review");
 async function loadSubagentDefinition(reviewType: string): Promise<string> {
 	const filePath = join(SUBAGENTS_DIR, reviewType, "prompt.md");
 	return (await readFile(filePath, "utf-8")).trim();
+}
+
+/**
+ * Build a combined acceptance criteria section for a PRD by reading each
+ * story's rich story file.
+ */
+function buildAcceptanceCriteriaSection(
+	projectName: string,
+	repoRoot: string,
+	prdName: string,
+	prd: PRD,
+): string {
+	return prd.stories
+		.map((s) => {
+			let criteria: string[] = [];
+			try {
+				const storyFilePath = getStoryFilePath(projectName, repoRoot, prdName, s);
+				criteria = readStoryAcceptanceCriteria(storyFilePath);
+			} catch {
+				criteria = [];
+			}
+			const acLines = criteria.length > 0 ? criteria.map((c) => `- ${c}`).join("\n") : "- (none)";
+			return `### ${s.id}: ${s.title}\n${acLines}`;
+		})
+		.join("\n\n");
 }
 
 /**
@@ -45,9 +71,7 @@ export async function generateReviewPrompt(
 		specContent = "(spec.md not found)";
 	}
 
-	const acceptanceCriteria = prd.stories
-		.map((s) => `### ${s.id}: ${s.title}\n${s.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`)
-		.join("\n\n");
+	const acceptanceCriteria = buildAcceptanceCriteriaSection(projectName, repoRoot, prdName, prd);
 
 	const secondReviewNote = isSecondReview
 		? `\n\nThis is the second review pass. Focus only on CRITICAL and MAJOR severity issues. Approve if only MINOR or SUGGESTION-level issues remain.`
@@ -142,10 +166,14 @@ ${findingsList}
 /**
  * Generate a prompt for external review tools (codex, etc.)
  */
-export function generateExternalReviewPrompt(prdName: string, prd: PRD, gitDiff: string): string {
-	const acceptanceCriteria = prd.stories
-		.map((s) => `### ${s.id}: ${s.title}\n${s.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`)
-		.join("\n\n");
+export function generateExternalReviewPrompt(
+	projectName: string,
+	repoRoot: string,
+	prdName: string,
+	prd: PRD,
+	gitDiff: string,
+): string {
+	const acceptanceCriteria = buildAcceptanceCriteriaSection(projectName, repoRoot, prdName, prd);
 
 	return `# Code Review Request: ${prdName}
 
