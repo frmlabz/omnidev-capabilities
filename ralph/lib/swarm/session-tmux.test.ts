@@ -1,5 +1,5 @@
-import assert from "node:assert";
 import { it } from "bun:test";
+import assert from "node:assert";
 import { TmuxSessionBackend } from "./session-tmux.js";
 
 it("reuses the bootstrap pane on first createPane", async () => {

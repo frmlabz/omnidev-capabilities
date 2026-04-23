@@ -6,8 +6,8 @@
  */
 
 import { spawn } from "node:child_process";
-import type { ProviderVariantConfig } from "../types.js";
 import type { Logger } from "../core/logger.js";
+import type { ProviderVariantConfig } from "../types.js";
 
 /**
  * Options for running an agent

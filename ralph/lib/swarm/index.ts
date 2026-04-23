@@ -6,55 +6,50 @@
  * and a SessionBackend implementation.
  */
 
-// Types
-export type {
-	SwarmConfig,
-	RunStatus,
-	RunInstance,
-	StartOptions,
-	QAOptions,
-	MergeResult,
-	MergeOptions,
-	RecoverResult,
-	SwarmState,
-	PersistedRunInstance,
-	PaneInfo,
-	PaneOptions,
-	SessionBackend,
-} from "./types.js";
-
-export { DEFAULT_SWARM_CONFIG } from "./types.js";
-
 // Session backends
 export { TmuxSessionBackend } from "./session-tmux.js";
-
-// Worktree operations
-export {
-	type WorktreeInfo,
-	type WorktreeCmdVars,
-	getCurrentBranch,
-	branchExists,
-	listWorktrees,
-	resolveWorktreePath,
-	createWorktree,
-	removeWorktree,
-	hasUncommittedChanges,
-	getMainWorktreePath,
-	isMainWorktree,
-	interpolateWorktreeCmd,
-} from "./worktree.js";
-
 // Swarm state
 export {
-	loadSwarmState,
-	saveSwarmState,
-	upsertRun,
-	updateRunStatus,
-	removeRun,
-	getRun,
 	getAllRuns,
+	getRun,
+	loadSwarmState,
 	reconcile,
+	removeRun,
+	saveSwarmState,
+	updateRunStatus,
+	upsertRun,
 } from "./state.js";
-
 // Main API
-export { SwarmManager, readWorktreePRD } from "./swarm.js";
+export { readWorktreePRD, SwarmManager } from "./swarm.js";
+// Types
+export type {
+	MergeOptions,
+	MergeResult,
+	PaneInfo,
+	PaneOptions,
+	PersistedRunInstance,
+	QAOptions,
+	RecoverResult,
+	RunInstance,
+	RunStatus,
+	SessionBackend,
+	StartOptions,
+	SwarmConfig,
+	SwarmState,
+} from "./types.js";
+export { DEFAULT_SWARM_CONFIG } from "./types.js";
+// Worktree operations
+export {
+	branchExists,
+	createWorktree,
+	getCurrentBranch,
+	getMainWorktreePath,
+	hasUncommittedChanges,
+	interpolateWorktreeCmd,
+	isMainWorktree,
+	listWorktrees,
+	removeWorktree,
+	resolveWorktreePath,
+	type WorktreeCmdVars,
+	type WorktreeInfo,
+} from "./worktree.js";

@@ -10,8 +10,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { findPRDLocation, getProgress, getPRD, getSpec } from "./state.js";
 import { getStatusDir } from "./core/paths.js";
+import { findPRDLocation, getPRD, getProgress, getSpec } from "./state.js";
 import type { PRD, Story } from "./types.js";
 
 const DEFAULT_DOCS_GLOB = "docs/**/*.md";

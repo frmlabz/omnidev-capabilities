@@ -6,4 +6,4 @@
  * Implementations live in separate files (e.g., session-tmux.ts).
  */
 
-export type { SessionBackend, PaneInfo, PaneOptions } from "./types.js";
+export type { PaneInfo, PaneOptions, SessionBackend } from "./types.js";

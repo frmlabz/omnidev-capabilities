@@ -10,15 +10,15 @@
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { type Result, ok, err } from "../results.js";
+import { atomicWrite, getSwarmStatePath } from "../core/paths.js";
+import { err, ok, type Result } from "../results.js";
 import type {
-	SwarmState,
+	PersistedRunInstance,
 	RunInstance,
 	RunStatus,
-	PersistedRunInstance,
 	SessionBackend,
+	SwarmState,
 } from "./types.js";
-import { getSwarmStatePath, atomicWrite } from "../core/paths.js";
 
 /**
  * Load swarm state from disk

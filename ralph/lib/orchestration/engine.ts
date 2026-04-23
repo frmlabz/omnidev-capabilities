@@ -5,52 +5,42 @@
  * Consolidates logic from orchestrator.ts and events.ts.
  */
 
+import { execSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { spawn, execSync } from "node:child_process";
-import { resolve } from "node:path";
-import { join } from "node:path";
-import type { PRD, ProviderVariantConfig, QAReport, RalphConfig } from "../types.js";
-import type { Result } from "../results.js";
-import { ok, err, ErrorCodes } from "../results.js";
-import { type PRDStore, getDefaultStore } from "../core/prd-store.js";
+import { join, resolve } from "node:path";
 import {
-	loadConfig,
 	getProviderVariantConfig,
-	getScriptsConfig,
 	getQAConfig,
 	getReviewConfig,
+	getScriptsConfig,
+	loadConfig,
 	resolveReviewProviderVariants,
-	getStoryVerificationConfig,
-	resolveStoryVerifierProviderVariant,
 } from "../core/config.js";
-import { type Logger, getLogger } from "../core/logger.js";
-import { type AgentExecutor, getAgentExecutor } from "./agent-runner.js";
+import { getLogger, type Logger } from "../core/logger.js";
+import { getDefaultStore, type PRDStore } from "../core/prd-store.js";
 import { generatePrompt } from "../prompt.js";
 import {
-	generateQAPrompt,
+	detectHealthCheckResult,
+	detectQAResult,
+	extractIssues,
 	generateQAPluginPrompt,
+	generateQAPrompt,
 	generateQARetestPrompt,
 	getPreviousFailures,
-	detectQAResult,
-	detectHealthCheckResult,
-	extractIssues,
 	parseQAReport,
 	saveQAReport,
 } from "../qa.js";
+import type { Result } from "../results.js";
+import { ErrorCodes, err, ok } from "../results.js";
+import { extractAndSaveFindings } from "../state.js";
+import type { PRD, ProviderVariantConfig, QAReport, RalphConfig } from "../types.js";
 import {
-	generateVerification,
 	generateSimpleVerification,
+	generateVerification,
 	hasVerification,
 } from "../verification.js";
-import { extractAndSaveFindings } from "../state.js";
+import { type AgentExecutor, getAgentExecutor } from "./agent-runner.js";
 import { ReviewEngine } from "./review-engine.js";
-import {
-	captureCurrentCommit,
-	verifyStory,
-	generateVerifierFixPrompt,
-	getStoryDiff,
-	readStoryAcceptanceCriteria,
-} from "./story-verifier.js";
 
 /**
  * Engine context - dependencies injected into the engine
@@ -88,16 +78,7 @@ export type EngineEvent =
 	| { type: "review_start"; phase: "first" | "external" | "second" | "finalize" }
 	| { type: "review_agent_complete"; reviewType: string; decision: string; findingsCount: number }
 	| { type: "review_fix_start"; iteration: number; findingsCount: number }
-	| { type: "review_phase_complete"; phase: string; clean: boolean }
-	| { type: "story_verification_start"; prdName: string; storyId: string }
-	| {
-			type: "story_verification_complete";
-			prdName: string;
-			storyId: string;
-			pass: boolean;
-			failedCount: number;
-			skipped: boolean;
-	  };
+	| { type: "review_phase_complete"; phase: string; clean: boolean };
 
 /**
  * Options for running orchestration
@@ -217,21 +198,6 @@ export class OrchestrationEngine {
 		const agentConfig = variantResult.data!;
 		const maxIterations = config.default_iterations;
 
-		// Resolve per-story verifier (optional). When disabled, runs are unchanged.
-		const storyVerification = getStoryVerificationConfig(config);
-		let storyVerifierVariant: ProviderVariantConfig | null = null;
-		if (storyVerification.enabled) {
-			const resolved = resolveStoryVerifierProviderVariant(config);
-			if (!resolved.ok) {
-				log(
-					"warn",
-					`Per-story verification is enabled but provider variant could not be resolved: ${resolved.error!.message}. Disabling for this run.`,
-				);
-			} else {
-				storyVerifierVariant = resolved.data!;
-			}
-		}
-
 		log("info", `Starting orchestration for PRD: ${prdName} (cwd: ${process.cwd()})`);
 		const cwdCheck = this.validateWorkingDirectory(prdName, log);
 		if (!cwdCheck.ok) {
@@ -343,19 +309,11 @@ export class OrchestrationEngine {
 			}
 
 			// Mark in progress and update iteration count.
-			// Capture the start commit on the first transition so the per-story verifier
-			// can diff just this story's work; verifier-reject retries reuse the original.
 			await this.ctx.store.update(prdName, (p) => {
 				const s = p.stories.find((st) => st.id === story.id);
 				if (s) {
 					s.status = "in_progress";
 					s.iterationCount = iterationCount;
-					if (!s.startCommit) {
-						const sha = captureCurrentCommit(this.ctx.repoRoot);
-						if (sha) {
-							s.startCommit = sha;
-						}
-					}
 				}
 				return p;
 			});
@@ -430,59 +388,6 @@ export class OrchestrationEngine {
 			}
 
 			if (storyMarkedComplete) {
-				// Per-story verifier: check the diff against the story's acceptance criteria
-				// before accepting completion. One retry, then block.
-				if (storyVerifierVariant) {
-					const latestStory = (await this.ctx.store.get(prdName)).data!.stories.find(
-						(s) => s.id === story.id,
-					)!;
-					const storyFilePath = this.ctx.store.getStoryFilePath(prdName, latestStory);
-					emit({ type: "story_verification_start", prdName, storyId: story.id });
-					const outcome = await verifyStory({
-						story: latestStory,
-						storyFilePath,
-						repoRoot: this.ctx.repoRoot,
-						providerVariant: storyVerifierVariant,
-						agentExecutor: this.ctx.agentExecutor,
-						signal,
-					});
-					emit({
-						type: "story_verification_complete",
-						prdName,
-						storyId: story.id,
-						pass: outcome.pass,
-						failedCount: outcome.failedAcs.length,
-						skipped: !!outcome.skipped,
-					});
-
-					if (!outcome.pass) {
-						const acs = readStoryAcceptanceCriteria(storyFilePath);
-						const summary = outcome.failedAcs.map((fa) => `${fa.status} AC ${fa.id}`).join(", ");
-						log(
-							"warn",
-							`Story ${story.id} failed verification (${summary}), spawning inline fix agent`,
-						);
-						const fixPrompt = generateVerifierFixPrompt(
-							latestStory,
-							storyFilePath,
-							acs,
-							outcome.failedAcs,
-							getStoryDiff(this.ctx.repoRoot, latestStory.startCommit),
-						);
-						try {
-							await this.ctx.agentExecutor.run(fixPrompt, agentConfig, {
-								stream: true,
-								signal,
-								onOutput: (data) => emit({ type: "agent_output", data }),
-							});
-						} catch (error) {
-							log("warn", `Fix agent failed for story ${story.id}: ${error}`);
-						}
-						// Story stays `completed`. The PRD-level review/QA phase is the
-						// deeper safety net; a failing fix agent will surface there.
-					}
-				}
-
 				log("info", `Story ${story.id} completed`);
 				emit({ type: "story_update", prdName, storyId: story.id, status: "completed" });
 

@@ -2,12 +2,12 @@
  * Tests for Ralph prompt generator
  */
 
+import { afterEach, beforeEach, it } from "bun:test";
 import assert from "node:assert";
 import { mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "bun:test";
-import { generatePrompt, getStatusDir, ensureDirectories } from "./lib/index.js";
+import { ensureDirectories, generatePrompt, getStatusDir } from "./lib/index.js";
 import type { PRD, Story } from "./lib/types.js";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 

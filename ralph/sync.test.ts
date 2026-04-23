@@ -1,8 +1,8 @@
-import assert from "node:assert";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
-import { join } from "node:path";
 import { afterEach, beforeEach, it } from "bun:test";
+import assert from "node:assert";
+import { execSync } from "node:child_process";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { sync } from "./sync.ts";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";
 

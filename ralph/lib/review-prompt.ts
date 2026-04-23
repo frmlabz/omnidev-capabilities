@@ -6,10 +6,14 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { findPRDLocation, getSpec, getStoryFilePath } from "./state.js";
-import { readStoryAcceptanceCriteria } from "./orchestration/story-verifier.js";
+import {
+	findPRDLocation,
+	getSpec,
+	getStoryFilePath,
+	readStoryAcceptanceCriteria,
+} from "./state.js";
 import type { PRD, ReviewFinding, ReviewRoundResult } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

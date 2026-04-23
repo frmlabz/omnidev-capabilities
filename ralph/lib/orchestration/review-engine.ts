@@ -6,32 +6,31 @@
  * and resolves them with an inline fix agent.
  */
 
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { execSync } from "node:child_process";
 import { isAbsolute, join } from "node:path";
-import { getStatusDir } from "../core/paths.js";
-import type { PRDStatus } from "../types.js";
-import type { EngineContext, EngineEvent } from "./engine.js";
-import type {
-	PRD,
-	ProviderVariantConfig,
-	RalphConfig,
-	ReviewFinding,
-	ReviewRoundResult,
-	ReviewConfig,
-} from "../types.js";
+import { getProviderVariantConfig, type ResolvedReviewProviderVariants } from "../core/config.js";
+import { atomicWrite, getStatusDir } from "../core/paths.js";
 import type { Result } from "../results.js";
 import { ok } from "../results.js";
-import { atomicWrite } from "../core/paths.js";
-import { getProviderVariantConfig, type ResolvedReviewProviderVariants } from "../core/config.js";
 import {
-	generateReviewPrompt,
-	generateFixPrompt,
 	generateExternalReviewPrompt,
 	generateFinalizePrompt,
+	generateFixPrompt,
+	generateReviewPrompt,
 	parseReviewResult,
 } from "../review-prompt.js";
+import type {
+	PRD,
+	PRDStatus,
+	ProviderVariantConfig,
+	RalphConfig,
+	ReviewConfig,
+	ReviewFinding,
+	ReviewRoundResult,
+} from "../types.js";
+import type { EngineContext, EngineEvent } from "./engine.js";
 
 /**
  * Get git diff for the PRD's changes

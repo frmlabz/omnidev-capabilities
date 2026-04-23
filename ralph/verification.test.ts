@@ -1,8 +1,8 @@
+import { afterEach, beforeEach, it } from "bun:test";
 import assert from "node:assert";
 import { mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "bun:test";
 import {
 	ensureDirectories,
 	generateQAPrompt,

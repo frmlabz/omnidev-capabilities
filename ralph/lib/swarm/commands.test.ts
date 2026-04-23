@@ -1,5 +1,5 @@
-import assert from "node:assert";
 import { it } from "bun:test";
+import assert from "node:assert";
 import { buildAutoCloseCommand } from "./commands.js";
 
 it("builds a pane command that closes the pane after the timeout", () => {

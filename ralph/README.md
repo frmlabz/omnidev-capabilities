@@ -136,36 +136,6 @@ Documentation is not just a cleanup step at the end. When a PRD changes behavior
 
 New PRDs should explicitly assess documentation impact and usually include a final documentation story when docs are affected. Verification and testing should also check that required docs were updated before a PRD can be considered verified.
 
-## Per-Story Verification
-
-After the dev agent signals a story complete, Ralph runs a cheap checklist auditor (`story-verifier` subagent) against that story's git diff and acceptance criteria. This catches "I'm done" misses at the smallest scope possible, before the story gets folded into the PRD-level review.
-
-### How it works
-
-1. When a story first transitions `pending → in_progress`, Ralph records the current `HEAD` SHA on the story as `startCommit`.
-2. When the story is marked complete, Ralph computes `git diff <startCommit>..HEAD` (truncated at 3000 chars), feeds it plus the acceptance criteria to the verifier agent, and parses its structured output.
-3. The verifier emits a per-AC verdict (`met` / `partial` / `unmet`) and one overall `PASS` or `FAIL`. A single non-`met` AC forces FAIL.
-4. On FAIL, Ralph reverts the story to `in_progress`, appends the failed ACs as questions, and lets the dev agent retry once. A second FAIL blocks the story.
-
-The verifier is a checklist auditor, not a code reviewer — it does not comment on style, design, or test coverage. Its only job is to answer, for each AC: did the diff deliver it?
-
-### Configuration
-
-```toml
-[ralph]
-# Enable per-story verification (default: true)
-per_story_verification = true
-
-# Agent for the verifier (default: "" — falls back to default_agent). The bundled
-# `story-verifier` subagent sets the system prompt; this config only controls which
-# LLM runtime spawns it.
-story_verifier_agent = ""
-```
-
-Fallback chain: `story_verifier_agent` → `default_agent`.
-
-Stories created before per-story verification existed (no `startCommit`) are skipped — the verifier returns `pass=true` with `skipped=true` so legacy data continues through the normal flow.
-
 ## Code Review Pipeline
 
 When all stories are completed, Ralph runs a multi-phase code review pipeline before transitioning to testing. This catches bugs, security issues, and over-engineering early — before they reach QA.
@@ -387,8 +357,6 @@ project_name = "my-app"       # Required. Slug format: lowercase, hyphens, no le
 default_agent = "claude"
 default_iterations = 10
 # verification_agent = "claude-opus"  # Optional. Agent for verification generation (default: default_agent)
-# per_story_verification = true       # Optional. Run checklist auditor after each story (default: true)
-# story_verifier_agent = ""           # Optional. Agent for per-story verifier (default: default_agent)
 
 [ralph.testing]
 # Quality checks the agent must run

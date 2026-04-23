@@ -7,10 +7,16 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { findPRDLocation, getPRD, getProgress, getSpec, getStoryFilePath } from "./state.js";
+import { atomicWrite, getStatusDir } from "./core/paths.js";
+import {
+	findPRDLocation,
+	getPRD,
+	getProgress,
+	getSpec,
+	getStoryFilePath,
+	readStoryAcceptanceCriteria,
+} from "./state.js";
 import type { ProviderVariantConfig, Story } from "./types.js";
-import { getStatusDir, atomicWrite } from "./core/paths.js";
-import { readStoryAcceptanceCriteria } from "./orchestration/story-verifier.js";
 
 const DEFAULT_DOCS_GLOB = "docs/**/*.md";
 

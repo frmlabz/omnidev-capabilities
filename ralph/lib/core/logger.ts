@@ -5,9 +5,9 @@
  * Replaces scattered console.log calls with structured logging.
  */
 
+import { EventEmitter } from "node:events";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { EventEmitter } from "node:events";
 
 /**
  * Log levels

@@ -1,6 +1,0 @@
-name = "story-verifier"
-description = "Checklist auditor. Given a story's acceptance criteria and the git diff produced while working on that story, answers for each AC whether the diff delivers it. Used by Ralph after each story is marked completed to catch premature completion."
-
-[claude]
-model = "haiku"
-disallowed_tools = ["Write", "Edit", "Bash"]

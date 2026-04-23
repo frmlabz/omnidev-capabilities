@@ -2,18 +2,18 @@
  * Tests for Ralph orchestration engine
  */
 
+import { afterEach, beforeEach, it } from "bun:test";
 import assert from "node:assert";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, it } from "bun:test";
 import {
-	loadConfig,
-	getAgentExecutor,
 	createEngine,
-	getStatusDir,
 	ensureDirectories,
+	getAgentExecutor,
+	getStatusDir,
+	loadConfig,
 } from "./lib/index.js";
 import type { PRD, PRDStatus } from "./lib/types.js";
 import { cleanupTmpTestDir, createTmpTestDir } from "./test-helpers.js";

@@ -5,20 +5,20 @@
  * All paths resolve to $XDG_STATE_HOME/omnidev/ralph/<project-key>/.
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicWrite, ensureStateDirs, getStateDir, getStatusDir } from "./core/paths.js";
 import type {
-	ProviderVariantConfig,
 	DependencyInfo,
 	LastRun,
 	PRD,
 	PRDStatus,
 	PRDSummary,
+	ProviderVariantConfig,
 	Story,
 	StoryStatus,
 } from "./types.js";
-import { getStatusDir, getStateDir, ensureStateDirs, atomicWrite } from "./core/paths.js";
 
 const ALL_STATUSES: PRDStatus[] = ["pending", "in_progress", "qa", "completed"];
 
@@ -882,4 +882,39 @@ export function getStoryFilePath(
 		throw new Error(`PRD not found: ${prdName}`);
 	}
 	return join(prdPath, story.promptPath);
+}
+
+/**
+ * Read the `## Acceptance Criteria` section from a story markdown file.
+ * Returns an array of criterion lines with leading list/checkbox markers stripped.
+ * Throws when the section is missing or empty — acceptance criteria must live
+ * in the story file.
+ */
+export function readStoryAcceptanceCriteria(storyFilePath: string): string[] {
+	const content = readFileSync(storyFilePath, "utf-8");
+	const headingRe = /^##\s+Acceptance Criteria\s*$/im;
+	const match = content.match(headingRe);
+	if (!match || match.index === undefined) {
+		throw new Error(`Story file ${storyFilePath} is missing '## Acceptance Criteria' section.`);
+	}
+	const after = content.slice(match.index + match[0].length);
+	const nextHeading = after.search(/^##\s+/m);
+	const block = nextHeading === -1 ? after : after.slice(0, nextHeading);
+	const items: string[] = [];
+	for (const rawLine of block.split("\n")) {
+		const line = rawLine.trim();
+		if (!line) continue;
+		const stripped = line
+			.replace(/^[-*+]\s*/, "")
+			.replace(/^\[[ xX]\]\s*/, "")
+			.trim();
+		if (!stripped) continue;
+		items.push(stripped);
+	}
+	if (items.length === 0) {
+		throw new Error(
+			`Story file ${storyFilePath} has an '## Acceptance Criteria' section but no items.`,
+		);
+	}
+	return items;
 }

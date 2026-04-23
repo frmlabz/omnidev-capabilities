@@ -20,7 +20,6 @@ export const StorySchema = z.object({
 	questions: z.array(z.string()).default([]),
 	answers: z.array(z.string()).optional(),
 	iterationCount: z.number().int().min(0).optional(),
-	startCommit: z.string().optional(),
 });
 
 export const LastRunSchema = z.object({
@@ -81,10 +80,6 @@ export const DocsConfigSchema = z.object({
 	provider_variant: z.string().optional(),
 });
 
-export const VerificationConfigSchema = z.object({
-	story_verifier_provider_variant: z.string().optional(),
-});
-
 export const ReviewConfigSchema = z.object({
 	enabled: z.boolean().optional(),
 	provider_variant: z.string().optional(),
@@ -121,8 +116,6 @@ export const RalphConfigSchema = z.object({
 	default_iterations: z.number().int().min(1),
 	provider_variants: z.record(z.string(), ProviderVariantConfigSchema),
 	verification_provider_variant: z.string().optional(),
-	per_story_verification: z.boolean().optional(),
-	verification: VerificationConfigSchema.optional(),
 	qa: QAConfigSchema.optional(),
 	scripts: ScriptsConfigSchema.optional(),
 	docs: DocsConfigSchema.optional(),
@@ -196,7 +189,6 @@ export type QAPlatformConfigZ = z.infer<typeof QAPlatformConfigSchema>;
 export type QAConfigZ = z.infer<typeof QAConfigSchema>;
 export type ScriptsConfigZ = z.infer<typeof ScriptsConfigSchema>;
 export type DocsConfigZ = z.infer<typeof DocsConfigSchema>;
-export type VerificationConfigZ = z.infer<typeof VerificationConfigSchema>;
 export type ReviewConfigZ = z.infer<typeof ReviewConfigSchema>;
 export type SwarmConfigZ = z.infer<typeof SwarmConfigSchema>;
 export type RalphConfigZ = z.infer<typeof RalphConfigSchema>;

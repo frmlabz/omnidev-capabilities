@@ -6,10 +6,10 @@
  */
 
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { type Result, ok, err } from "../results.js";
+import { promisify } from "node:util";
+import { err, ok, type Result } from "../results.js";
 
 const execFileAsync = promisify(execFile);
 

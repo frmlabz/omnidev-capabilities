@@ -13,10 +13,10 @@
  * Runtime code does not support unmigrated PRDs — this command is the cut.
  */
 
-import { existsSync, readdirSync, renameSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getXdgStateHome, atomicWrite } from "./core/paths.js";
+import { atomicWrite, getXdgStateHome } from "./core/paths.js";
 
 interface LegacyStory {
 	id: string;
@@ -205,10 +205,10 @@ async function migratePRDJson(
 		});
 	}
 
-	if (Object.prototype.hasOwnProperty.call(prd, "testsCaughtIssue")) {
+	if (Object.hasOwn(prd, "testsCaughtIssue")) {
 		const value = prd.testsCaughtIssue;
 		delete prd.testsCaughtIssue;
-		if (!Object.prototype.hasOwnProperty.call(prd, "qaCaughtIssue")) {
+		if (!Object.hasOwn(prd, "qaCaughtIssue")) {
 			prd.qaCaughtIssue = value;
 		}
 		changed = true;

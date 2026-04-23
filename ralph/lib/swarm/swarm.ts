@@ -8,39 +8,39 @@
  */
 
 import { existsSync } from "node:fs";
-import { type Result, ok, err } from "../results.js";
+import { AgentExecutor } from "../orchestration/agent-runner.js";
+import { err, ok, type Result } from "../results.js";
+import { canStartPRD, findPRDLocation, getPRD, hasPRDFile } from "../state.js";
+import type { PRD } from "../types.js";
+import { buildAutoCloseCommand } from "./commands.js";
+import {
+	getRun,
+	loadSwarmState,
+	reconcile,
+	removeRun,
+	updateRunStatus,
+	upsertRun,
+} from "./state.js";
 import type {
-	SwarmConfig,
-	RunInstance,
-	StartOptions,
-	QAOptions,
-	MergeResult,
 	MergeOptions,
+	MergeResult,
+	QAOptions,
 	RecoverResult,
+	RunInstance,
 	SessionBackend,
+	StartOptions,
+	SwarmConfig,
 } from "./types.js";
 import {
 	createWorktree,
-	removeWorktree,
-	isMainWorktree,
-	resolveWorktreePath,
-	listWorktrees,
+	getCurrentBranch,
 	hasUncommittedChanges,
 	interpolateWorktreeCmd,
-	getCurrentBranch,
+	isMainWorktree,
+	listWorktrees,
+	removeWorktree,
+	resolveWorktreePath,
 } from "./worktree.js";
-import { buildAutoCloseCommand } from "./commands.js";
-import { AgentExecutor } from "../orchestration/agent-runner.js";
-import {
-	loadSwarmState,
-	upsertRun,
-	updateRunStatus,
-	removeRun,
-	getRun,
-	reconcile,
-} from "./state.js";
-import { findPRDLocation, hasPRDFile, canStartPRD, getPRD } from "../state.js";
-import type { PRD } from "../types.js";
 
 export class SwarmManager {
 	private config: SwarmConfig;

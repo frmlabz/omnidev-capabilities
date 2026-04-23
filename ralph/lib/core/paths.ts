@@ -6,9 +6,8 @@
  */
 
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { writeFile, rename } from "node:fs/promises";
-import { dirname } from "node:path";
+import { rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { PRDStatus } from "../types.js";
 
 const PROJECT_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;

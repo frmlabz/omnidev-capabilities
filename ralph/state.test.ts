@@ -2,11 +2,11 @@
  * Tests for Ralph state management
  */
 
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import assert from "node:assert";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, it } from "bun:test";
 import {
 	appendProgress,
 	ensureDirectories,

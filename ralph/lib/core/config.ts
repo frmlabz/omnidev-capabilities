@@ -9,27 +9,21 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { parse } from "smol-toml";
+import { ErrorCodes, err, ok, type Result } from "../results.js";
 import { validateRalphConfig } from "../schemas.js";
 import type {
-	RalphConfig,
+	DocsConfig,
 	ProviderVariantConfig,
 	QAConfig,
 	QAPlatformConfig,
-	ScriptsConfig,
-	DocsConfig,
-	VerificationConfig,
+	RalphConfig,
 	ReviewConfig,
+	ScriptsConfig,
 	SwarmConfig,
 } from "../types.js";
-import { type Result, ok, err, ErrorCodes } from "../results.js";
 
 const CONFIG_PATH = "omni.toml";
 const LOCAL_CONFIG_PATH = "omni.local.toml";
-
-/**
- * Default provider variant for the per-story verifier when not configured.
- */
-export const DEFAULT_STORY_VERIFIER_PROVIDER_VARIANT = "claude-haiku";
 
 /**
  * Raw TOML structure from omni.toml
@@ -40,9 +34,7 @@ interface RawTomlConfig {
 		default_provider_variant?: string;
 		default_iterations?: number;
 		verification_provider_variant?: string;
-		per_story_verification?: boolean;
 		provider_variants?: Record<string, RawProviderVariantConfig>;
-		verification?: RawVerificationConfig;
 		qa?: RawQAConfig;
 		scripts?: RawScriptsConfig;
 		docs?: RawDocsConfig;
@@ -54,7 +46,7 @@ interface RawTomlConfig {
 type TomlObject = Record<string, unknown>;
 
 // Re-export path utilities so consumers can use them via config module
-export { validateProjectName, getStateDir, getPrdsDir } from "./paths.js";
+export { getPrdsDir, getStateDir, validateProjectName } from "./paths.js";
 
 interface RawProviderVariantConfig {
 	command?: string;
@@ -85,10 +77,6 @@ interface RawDocsConfig {
 	path?: string;
 	auto_update?: boolean;
 	provider_variant?: string;
-}
-
-interface RawVerificationConfig {
-	story_verifier_provider_variant?: string;
 }
 
 interface RawReviewConfig {
@@ -137,9 +125,6 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 	if (ralph.verification_provider_variant) {
 		config.verification_provider_variant = ralph.verification_provider_variant;
 	}
-	if (ralph.per_story_verification !== undefined) {
-		config.per_story_verification = ralph.per_story_verification;
-	}
 
 	// Provider variants (required — transformConfig always emits a dict)
 	config.provider_variants = {};
@@ -151,16 +136,6 @@ function transformConfig(raw: RawTomlConfig): Partial<RalphConfig> {
 			};
 			config.provider_variants[name] = variant;
 		}
-	}
-
-	// Verification config
-	if (ralph.verification) {
-		const verification: VerificationConfig = {};
-		if (ralph.verification.story_verifier_provider_variant) {
-			verification.story_verifier_provider_variant =
-				ralph.verification.story_verifier_provider_variant;
-		}
-		config.verification = verification;
 	}
 
 	// QA config
@@ -307,10 +282,6 @@ function validateProviderVariantReferences(config: RalphConfig): Result<RalphCon
 	const references: Array<{ name: string | undefined; setting: string }> = [
 		{ name: config.default_provider_variant, setting: "ralph.default_provider_variant" },
 		{ name: config.verification_provider_variant, setting: "ralph.verification_provider_variant" },
-		{
-			name: config.verification?.story_verifier_provider_variant,
-			setting: "ralph.verification.story_verifier_provider_variant",
-		},
 		{ name: config.review?.provider_variant, setting: "ralph.review.provider_variant" },
 		{ name: config.review?.fix_provider_variant, setting: "ralph.review.fix_provider_variant" },
 		{
@@ -433,34 +404,6 @@ export function getQAConfig(config: RalphConfig): QAConfig {
  */
 export function getScriptsConfig(config: RalphConfig): ScriptsConfig {
 	return config.scripts ?? {};
-}
-
-/**
- * Per-story verification settings with defaults filled in.
- */
-export interface StoryVerificationConfig {
-	enabled: boolean;
-	providerVariantName: string;
-}
-
-export function getStoryVerificationConfig(config: RalphConfig): StoryVerificationConfig {
-	return {
-		enabled: config.per_story_verification ?? true,
-		providerVariantName:
-			config.verification?.story_verifier_provider_variant ??
-			DEFAULT_STORY_VERIFIER_PROVIDER_VARIANT,
-	};
-}
-
-/**
- * Resolve the provider variant used by the per-story verifier.
- * Falls back to the default variant "claude-haiku" when unconfigured.
- */
-export function resolveStoryVerifierProviderVariant(
-	config: RalphConfig,
-): Result<ProviderVariantConfig> {
-	const { providerVariantName } = getStoryVerificationConfig(config);
-	return getProviderVariantConfig(config, providerVariantName);
 }
 
 /**

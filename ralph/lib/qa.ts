@@ -17,10 +17,10 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { findPRDLocation, getQAResultsDir, getPRD, getProgress, getSpec } from "./state.js";
+import { getStatusDir } from "./core/paths.js";
+import { findPRDLocation, getPRD, getProgress, getQAResultsDir, getSpec } from "./state.js";
 import type { PRD, QAReport, QAResult, RalphConfig } from "./types.js";
 import { getVerification } from "./verification.js";
-import { getStatusDir } from "./core/paths.js";
 
 const DEFAULT_DOCS_GLOB = "docs/**/*.md";
 

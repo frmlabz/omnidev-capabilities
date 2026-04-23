@@ -9,159 +9,190 @@
  * - Configuration loading
  */
 
-// Types
-export type {
-	ProviderVariantConfig,
-	DependencyInfo,
-	DocsConfig,
-	LastRun,
-	PRD,
-	PRDMetrics,
-	PRDStatus,
-	PRDSummary,
-	RalphConfig,
-	ReviewConfig,
-	ReviewFinding,
-	ReviewRoundResult,
-	SwarmConfig,
-	ScriptsConfig,
-	Story,
-	StoryStatus,
-	QAConfig,
-	QAPlatformConfig,
-	QAIssue,
-	QAReport,
-	QAResult,
-	VerificationConfig,
-} from "./types.js";
-
-// Schemas (Zod validation)
+// High-level API (structured results for CLI and daemon)
 export {
-	StoryStatusSchema,
-	PRDStatusSchema,
-	StorySchema,
-	LastRunSchema,
-	PRDMetricsSchema,
-	PRDSchema,
-	ProviderVariantConfigSchema,
-	QAConfigSchema,
-	QAPlatformConfigSchema,
-	ScriptsConfigSchema,
-	DocsConfigSchema,
-	VerificationConfigSchema,
-	ReviewConfigSchema,
-	SwarmConfigSchema,
-	RalphConfigSchema,
-	QAResultSchema,
-	QAReportSchema,
-	QAIssueSchema,
-	DependencyInfoSchema,
-	PRDSummarySchema,
-	validatePRD,
-	validateStory,
-	validateRalphConfig,
-	type StoryStatusZ,
-	type PRDStatusZ,
-	type StoryZ,
-	type LastRunZ,
-	type PRDMetricsZ,
-	type PRDZ,
-	type ProviderVariantConfigZ,
-	type QAConfigZ,
-	type QAPlatformConfigZ,
-	type ScriptsConfigZ,
-	type DocsConfigZ,
-	type VerificationConfigZ,
-	type ReviewConfigZ,
-	type SwarmConfigZ,
-	type RalphConfigZ,
-	type QAResultZ,
-	type QAReportZ,
-	type QAIssueZ,
-	type DependencyInfoZ,
-	type PRDSummaryZ,
-} from "./schemas.js";
-
-// Core - State Machine
-export {
-	PRDStateMachine,
-	StoryStateMachine,
-	DisplayStateMachine,
-	type DisplayState,
-} from "./core/state-machine.js";
-
-// Core - PRD Store
-export {
-	PRDStore,
-	getDefaultStore,
-	createStore,
-} from "./core/prd-store.js";
-
-// Core - Paths
-export {
-	validateProjectName,
-	getProjectKey,
-	getXdgStateHome,
-	getStateDir,
-	getPrdsDir,
-	getStatusDir,
-	getSwarmStatePath,
-	ensureStateDirs,
-	atomicWrite,
-} from "./core/paths.js";
-
+	canTransition,
+	getActions,
+	getPRDState,
+	type RunOptions,
+	runQA,
+	startDevelopment,
+} from "./api.js";
 // Core - Config (Result-based API)
 export {
-	loadConfig,
 	getProviderVariantConfig,
-	hasProviderVariant,
 	getQAConfig,
-	getScriptsConfig,
 	getReviewConfig,
+	getScriptsConfig,
 	getSwarmConfig,
-	resolveReviewProviderVariants,
-	getStoryVerificationConfig,
-	resolveStoryVerifierProviderVariant,
+	hasProviderVariant,
+	loadConfig,
 	type ResolvedReviewProviderVariants,
-	type StoryVerificationConfig,
+	resolveReviewProviderVariants,
 } from "./core/config.js";
-
 // Core - Logger
 export {
-	type LogLevel,
-	type LogContext,
-	type LogEntry,
-	type LogOutput,
 	ConsoleOutput,
-	FileOutput,
-	EventOutput,
-	MemoryOutput,
-	Logger,
-	getLogger,
 	configureLogger,
 	createLogger,
+	EventOutput,
+	FileOutput,
+	getLogger,
+	type LogContext,
+	type LogEntry,
+	Logger,
+	type LogLevel,
+	type LogOutput,
+	MemoryOutput,
 } from "./core/logger.js";
-
+// Core - Paths
+export {
+	atomicWrite,
+	ensureStateDirs,
+	getPrdsDir,
+	getProjectKey,
+	getStateDir,
+	getStatusDir,
+	getSwarmStatePath,
+	getXdgStateHome,
+	validateProjectName,
+} from "./core/paths.js";
+// Core - PRD Store
+export {
+	createStore,
+	getDefaultStore,
+	PRDStore,
+} from "./core/prd-store.js";
+// Core - State Machine
+export {
+	type DisplayState,
+	DisplayStateMachine,
+	PRDStateMachine,
+	StoryStateMachine,
+} from "./core/state-machine.js";
+// Documentation
+export {
+	applyDocumentationUpdates,
+	DOCUMENTATION_OUTPUT_FORMAT,
+	DOCUMENTATION_PRINCIPLES,
+	type DocFile,
+	type DocumentationContext,
+	findDocFiles,
+	generateDocumentationUpdatePrompt,
+	parseDocumentationUpdates,
+	updateDocumentation,
+} from "./documentation.js";
+// Event-based API (for daemon integration)
+export {
+	createOrchestrator,
+	Orchestrator,
+	type OrchestratorEvent,
+	type OrchestratorOptions,
+} from "./events.js";
 // Orchestration - Agent Executor
 export {
-	type RunOptions as AgentRunOptions,
-	type AgentResult,
 	AgentExecutor,
-	getAgentExecutor,
+	type AgentResult,
 	createAgentExecutor,
+	getAgentExecutor,
+	type RunOptions as AgentRunOptions,
 } from "./orchestration/agent-runner.js";
-
 // Orchestration - Engine
 export {
+	createEngine,
+	type DevelopmentResult,
 	type EngineContext,
 	type EngineEvent,
-	type RunOptions as EngineRunOptions,
-	type DevelopmentResult,
-	type QARunResult,
 	OrchestrationEngine,
-	createEngine,
+	type QARunResult,
+	type RunOptions as EngineRunOptions,
 } from "./orchestration/engine.js";
 
+// Orchestration - Review Engine
+export { ReviewEngine } from "./orchestration/review-engine.js";
+
+// Prompt generation
+export { generateFindingsExtractionPrompt, generatePrompt } from "./prompt.js";
+// QA
+export {
+	detectQAResult,
+	extractIssues,
+	generateQAPluginPrompt,
+	generateQAPrompt,
+	generateQARetestPrompt,
+	getPreviousFailures,
+	parseQAReport,
+	resolveQAPluginPath,
+	saveQAReport,
+} from "./qa.js";
+// Result types
+export {
+	computeDisplayState,
+	type ErrorCode,
+	ErrorCodes,
+	err,
+	getAvailableActions,
+	isValidTransition,
+	ok,
+	type PRDDisplayState,
+	type QAStartResult,
+	type Result,
+	type StartResult,
+	type StateResult,
+	type TransitionResult,
+} from "./results.js";
+// Review prompt generation
+export {
+	generateExternalReviewPrompt,
+	generateFinalizePrompt,
+	generateFixPrompt,
+	generateReviewPrompt,
+	parseReviewResult,
+} from "./review-prompt.js";
+// Schemas (Zod validation)
+export {
+	DependencyInfoSchema,
+	type DependencyInfoZ,
+	DocsConfigSchema,
+	type DocsConfigZ,
+	LastRunSchema,
+	type LastRunZ,
+	PRDMetricsSchema,
+	type PRDMetricsZ,
+	PRDSchema,
+	PRDStatusSchema,
+	type PRDStatusZ,
+	PRDSummarySchema,
+	type PRDSummaryZ,
+	type PRDZ,
+	ProviderVariantConfigSchema,
+	type ProviderVariantConfigZ,
+	QAConfigSchema,
+	type QAConfigZ,
+	QAIssueSchema,
+	type QAIssueZ,
+	QAPlatformConfigSchema,
+	type QAPlatformConfigZ,
+	QAReportSchema,
+	type QAReportZ,
+	QAResultSchema,
+	type QAResultZ,
+	RalphConfigSchema,
+	type RalphConfigZ,
+	ReviewConfigSchema,
+	type ReviewConfigZ,
+	ScriptsConfigSchema,
+	type ScriptsConfigZ,
+	StorySchema,
+	StoryStatusSchema,
+	type StoryStatusZ,
+	type StoryZ,
+	SwarmConfigSchema,
+	type SwarmConfigZ,
+	validatePRD,
+	validateRalphConfig,
+	validateStory,
+} from "./schemas.js";
 // Legacy State management (for backward compatibility)
 export {
 	addFixStory,
@@ -174,17 +205,17 @@ export {
 	extractAndSaveFindings,
 	extractFindings,
 	findPRDLocation,
-	hasPRDFile,
 	getNextFixStoryId,
 	getNextStory,
 	getPRD,
 	getPRDSummaries,
 	getProgress,
-	getSpec,
 	getQAResultsDir,
+	getSpec,
 	getStoryFilePath,
 	getUnmetDependencies,
 	hasBlockedStories,
+	hasPRDFile,
 	isPRDComplete,
 	isPRDCompleteOrArchived,
 	listPRDs,
@@ -192,6 +223,7 @@ export {
 	markPRDCompleted,
 	markPRDStarted,
 	movePRD,
+	readStoryAcceptanceCriteria,
 	savePRD,
 	unblockStory,
 	updateLastRun,
@@ -199,37 +231,72 @@ export {
 	updatePRD,
 	updateStoryStatus,
 } from "./state.js";
-
-// Orchestration - Review Engine
-export { ReviewEngine } from "./orchestration/review-engine.js";
-
-// Orchestration - Story Verifier
+// Swarm module — parallel PRD execution via worktrees + session backends
 export {
-	MAX_DIFF_CHARS as STORY_VERIFIER_MAX_DIFF_CHARS,
-	captureCurrentCommit,
-	generateVerifierFixPrompt,
-	generateVerifierPrompt,
-	getStoryDiff,
-	parseVerifierOutput,
-	readStoryAcceptanceCriteria,
-	verifyStory,
-	type FailedAc,
-	type VerificationOutcome,
-	type VerifyStoryParams,
-} from "./orchestration/story-verifier.js";
-
-// Prompt generation
-export { generateFindingsExtractionPrompt, generatePrompt } from "./prompt.js";
-
-// Review prompt generation
-export {
-	generateReviewPrompt,
-	generateFixPrompt,
-	generateExternalReviewPrompt,
-	generateFinalizePrompt,
-	parseReviewResult,
-} from "./review-prompt.js";
-
+	branchExists,
+	createWorktree,
+	DEFAULT_SWARM_CONFIG,
+	getAllRuns,
+	getCurrentBranch,
+	getMainWorktreePath,
+	getRun,
+	hasUncommittedChanges,
+	isMainWorktree,
+	listWorktrees,
+	// Swarm state
+	loadSwarmState,
+	type MergeOptions,
+	type MergeResult,
+	type PaneInfo,
+	type PaneOptions,
+	type PersistedRunInstance,
+	type QAOptions,
+	type RecoverResult,
+	type RunInstance,
+	// Types
+	type RunStatus,
+	readWorktreePRD,
+	reconcile,
+	removeRun as removeRunInstance,
+	removeWorktree,
+	resolveWorktreePath,
+	type SessionBackend,
+	type StartOptions,
+	// Main API
+	SwarmManager,
+	type SwarmState,
+	saveSwarmState,
+	// Session backends
+	TmuxSessionBackend,
+	updateRunStatus,
+	upsertRun,
+	// Worktree operations
+	type WorktreeInfo,
+} from "./swarm/index.js";
+// Types
+export type {
+	DependencyInfo,
+	DocsConfig,
+	LastRun,
+	PRD,
+	PRDMetrics,
+	PRDStatus,
+	PRDSummary,
+	ProviderVariantConfig,
+	QAConfig,
+	QAIssue,
+	QAPlatformConfig,
+	QAReport,
+	QAResult,
+	RalphConfig,
+	ReviewConfig,
+	ReviewFinding,
+	ReviewRoundResult,
+	ScriptsConfig,
+	Story,
+	StoryStatus,
+	SwarmConfig,
+} from "./types.js";
 // Verification
 export {
 	generateSimpleVerification,
@@ -240,107 +307,3 @@ export {
 	hasVerification,
 	saveVerification,
 } from "./verification.js";
-
-// QA
-export {
-	detectQAResult,
-	extractIssues,
-	generateQAPrompt,
-	generateQAPluginPrompt,
-	generateQARetestPrompt,
-	getPreviousFailures,
-	parseQAReport,
-	saveQAReport,
-	resolveQAPluginPath,
-} from "./qa.js";
-
-// Event-based API (for daemon integration)
-export {
-	createOrchestrator,
-	Orchestrator,
-	type OrchestratorEvent,
-	type OrchestratorOptions,
-} from "./events.js";
-
-// High-level API (structured results for CLI and daemon)
-export {
-	getPRDState,
-	startDevelopment,
-	runQA,
-	getActions,
-	canTransition,
-	type RunOptions,
-} from "./api.js";
-
-// Documentation
-export {
-	DOCUMENTATION_PRINCIPLES,
-	DOCUMENTATION_OUTPUT_FORMAT,
-	findDocFiles,
-	generateDocumentationUpdatePrompt,
-	parseDocumentationUpdates,
-	applyDocumentationUpdates,
-	updateDocumentation,
-	type DocFile,
-	type DocumentationContext,
-} from "./documentation.js";
-
-// Result types
-export {
-	type Result,
-	type StartResult,
-	type QAStartResult,
-	type StateResult,
-	type TransitionResult,
-	type PRDDisplayState,
-	type ErrorCode,
-	ok,
-	err,
-	ErrorCodes,
-	computeDisplayState,
-	isValidTransition,
-	getAvailableActions,
-} from "./results.js";
-
-// Swarm module — parallel PRD execution via worktrees + session backends
-export {
-	// Main API
-	SwarmManager,
-	readWorktreePRD,
-	// Session backends
-	TmuxSessionBackend,
-	// Types
-	type RunStatus,
-	type RunInstance,
-	type StartOptions,
-	type QAOptions,
-	type MergeResult,
-	type MergeOptions,
-	type RecoverResult,
-	type SwarmState,
-	type PersistedRunInstance,
-	type PaneInfo,
-	type PaneOptions,
-	type SessionBackend,
-	DEFAULT_SWARM_CONFIG,
-	// Worktree operations
-	type WorktreeInfo,
-	getCurrentBranch,
-	branchExists,
-	listWorktrees,
-	resolveWorktreePath,
-	createWorktree,
-	removeWorktree,
-	hasUncommittedChanges,
-	getMainWorktreePath,
-	isMainWorktree,
-	// Swarm state
-	loadSwarmState,
-	saveSwarmState,
-	upsertRun,
-	updateRunStatus,
-	removeRun as removeRunInstance,
-	getRun,
-	getAllRuns,
-	reconcile,
-} from "./swarm/index.js";

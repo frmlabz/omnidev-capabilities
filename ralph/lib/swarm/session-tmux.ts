@@ -7,8 +7,8 @@
 
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { type Result, ok, err } from "../results.js";
-import type { SessionBackend, PaneInfo, PaneOptions } from "./types.js";
+import { err, ok, type Result } from "../results.js";
+import type { PaneInfo, PaneOptions, SessionBackend } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const BOOTSTRAP_PANE_TITLE = "__ralph_swarm_bootstrap__";

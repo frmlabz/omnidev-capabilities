@@ -13,17 +13,20 @@
  * - swarm: Parallel PRD execution via worktrees + tmux
  */
 
+import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { execSync } from "node:child_process";
 import { join } from "node:path";
-import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import * as readline from "node:readline/promises";
 import { command, routes } from "@omnidev-ai/capability";
-
+import { getProviderVariantConfig } from "./lib/core/config.js";
+import { getStatusDir } from "./lib/core/paths.js";
 import {
 	buildDependencyGraph,
 	canStartPRD,
+	createEngine,
+	type EngineEvent,
 	extractAndSaveFindings,
 	findPRDLocation,
 	getPRD,
@@ -31,15 +34,11 @@ import {
 	getSpec,
 	hasPRDFile,
 	listPRDsByStatus,
+	loadConfig,
 	movePRD,
 	unblockStory,
-	loadConfig,
-	createEngine,
-	type EngineEvent,
 } from "./lib/index.js";
-import { getProviderVariantConfig } from "./lib/core/config.js";
 import { getAgentExecutor } from "./lib/orchestration/agent-runner.js";
-import { getStatusDir } from "./lib/core/paths.js";
 import type { PRD, PRDStatus, Story } from "./lib/types.js";
 
 /**
@@ -93,20 +92,6 @@ function consoleEventHandler(event: EngineEvent): void {
 			break;
 		case "review_phase_complete":
 			console.log(`Review phase ${event.phase} complete${event.clean ? " (clean)" : ""}`);
-			break;
-		case "story_verification_start":
-			console.log(`Verifying story ${event.storyId}...`);
-			break;
-		case "story_verification_complete":
-			if (event.skipped) {
-				console.log(`Verifier skipped story ${event.storyId} (no start commit recorded)`);
-			} else if (event.pass) {
-				console.log(`✓ Story ${event.storyId} passed verification`);
-			} else {
-				console.log(
-					`✗ Story ${event.storyId} failed verification (${event.failedCount} unmet/partial AC${event.failedCount === 1 ? "" : "s"})`,
-				);
-			}
 			break;
 		case "qa_complete":
 			if (event.result === "verified") console.log("\n✅ PRD_VERIFIED!");

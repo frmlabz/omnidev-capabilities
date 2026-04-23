@@ -7,8 +7,8 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
-import type { ProviderVariantConfig, PRD } from "./types.js";
 import { getPRD, getProgress, getSpec } from "./state.js";
+import type { PRD, ProviderVariantConfig } from "./types.js";
 
 /**
  * Documentation principles - shared between automated updates and skills

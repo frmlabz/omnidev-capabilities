@@ -43,11 +43,6 @@ export interface Story {
 	answers?: string[];
 	/** Number of iterations attempted for this story (used to detect stuck stories) */
 	iterationCount?: number;
-	/**
-	 * Git commit SHA captured when the story first transitioned pending → in_progress.
-	 * Used by the per-story verifier to compute the diff of work done on this story.
-	 */
-	startCommit?: string;
 }
 
 /**
@@ -160,17 +155,6 @@ export interface DocsConfig {
 }
 
 /**
- * Per-story verification configuration
- */
-export interface VerificationConfig {
-	/**
-	 * Provider variant name used by the per-story verifier.
-	 * Defaults to "claude-haiku" when absent.
-	 */
-	story_verifier_provider_variant?: string;
-}
-
-/**
  * Review configuration for code review pipeline
  */
 export interface ReviewConfig {
@@ -238,13 +222,6 @@ export interface RalphConfig {
 	provider_variants: Record<string, ProviderVariantConfig>;
 	/** Provider variant for verification prompt generation. Falls back to default_provider_variant. */
 	verification_provider_variant?: string;
-	/**
-	 * Whether to run the per-story verifier after each story is marked completed.
-	 * Default: true.
-	 */
-	per_story_verification?: boolean;
-	/** Per-story verification settings */
-	verification?: VerificationConfig;
 	/** QA configuration */
 	qa?: QAConfig;
 	/** Scripts configuration - paths to lifecycle scripts */
