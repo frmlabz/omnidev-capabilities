@@ -101,6 +101,8 @@ $XDG_STATE_HOME/omnidev/ralph/<project>/prds/pending/<prd-name>/
 
 (Defaults to `~/.local/state/omnidev/ralph/<project>/prds/pending/<prd-name>/`)
 
+Do not create `prd.json`, `stories/`, or `progress.txt` at this step. Those are written in step 7 after the spec is reviewed and approved.
+
 The spec describes WHAT the feature should do (requirements), NOT HOW to implement it.
 
 ```markdown
@@ -218,9 +220,22 @@ Present a brief summary of what the final spec covers:
 
 Ask the user to confirm they're ready to proceed with story creation. This is the last checkpoint before investing effort in the prd.json breakdown.
 
-### 7. Write the PRD File (prd.json)
+### 7. Write prd.json and stories/<id>.md
 
-Now that the spec is confirmed, break down the work into stories:
+Now that the spec is confirmed, break down the work into stories. **The story file is the source of truth for scope and acceptance criteria; `prd.json` only holds metadata and a `promptPath` pointing at the story file.** Putting `acceptanceCriteria` inside `prd.json` will fail Zod validation (`promptPath` is required, `acceptanceCriteria` is not a known field).
+
+Write both files under the PRD directory:
+
+```
+<prd-dir>/
+├── prd.json
+└── stories/
+    ├── US-001.md
+    ├── US-002.md
+    └── ...
+```
+
+#### 7a. prd.json (strict shape)
 
 ```json
 {
@@ -232,10 +247,7 @@ Now that the spec is confirmed, break down the work into stories:
     {
       "id": "US-001",
       "title": "Story title",
-      "acceptanceCriteria": [
-        "Criterion 1",
-        "Criterion 2"
-      ],
+      "promptPath": "stories/US-001.md",
       "status": "pending",
       "priority": 1,
       "questions": []
@@ -244,21 +256,61 @@ Now that the spec is confirmed, break down the work into stories:
 }
 ```
 
+**Hard rules — these will fail Zod validation if violated:**
+
+- `createdAt` MUST be an ISO-8601 datetime ending in `Z` (UTC). `+02:00`, `+0000`, or no-suffix values are rejected by `z.string().datetime()`.
+- Every story MUST include `promptPath` (relative to the PRD dir, typically `stories/<id>.md`). The file at that path must exist before `omnidev ralph start` runs.
+- Do NOT put `acceptanceCriteria` on a story in `prd.json`. It belongs in the story file under `## Acceptance Criteria`.
+- `priority` is a positive integer. FR numbers, story IDs, and priorities must be sequential and unique.
+- `status` starts as `"pending"` for every story.
+
 **PRD fields:**
 
 - `name`: Unique identifier (matches folder name)
 - `description`: Brief description of the feature
-- `createdAt`: ISO timestamp of creation
+- `createdAt`: ISO timestamp, UTC, `Z`-suffixed (e.g. `"2026-01-10T12:00:00Z"`)
 - `dependencies`: Array of PRD names that must be completed first (can be empty)
 
-**Story fields:**
+**Story fields (in prd.json):**
 
-- `id`: Unique identifier (US-001, US-002, etc.)
+- `id`: Unique identifier (US-001, US-002, …)
 - `title`: Short descriptive title
-- `acceptanceCriteria`: Array of verifiable criteria for this chunk
-- `status`: "pending" | "in_progress" | "completed" | "blocked"
-- `priority`: 1-10 (lower = higher priority, do first)
-- `questions`: Array of questions when blocked (empty initially)
+- `promptPath`: Relative path to the story markdown file, e.g. `"stories/US-001.md"`
+- `status`: always `"pending"` at creation
+- `priority`: 1, 2, 3, … (lower = higher priority)
+- `questions`: `[]` at creation
+
+#### 7b. stories/<id>.md (one file per story)
+
+Each story file carries the scope and acceptance criteria. Use this template verbatim — the front-matter keys and the section headers (`## Goal`, `## Scope`, `## Out of scope`, `## Deliverables`, `## Acceptance Criteria`) are load-bearing.
+
+```markdown
+---
+id: US-001
+title: Story title
+priority: 1
+dependencies: []
+---
+
+## Goal
+One-sentence outcome for this story.
+
+## Scope
+- What this story changes
+- Files or modules it touches
+
+## Out of scope
+- Anything deliberately left for a later story
+
+## Deliverables
+1. Concrete artifact 1
+2. Concrete artifact 2
+
+## Acceptance Criteria
+- [ ] Verifiable criterion 1
+- [ ] Verifiable criterion 2
+- [ ] Tests, typecheck, and lint pass
+```
 
 **Documentation expectations for story creation:**
 
@@ -320,38 +372,51 @@ The reviewer returns a verdict:
 - **Scope appropriately** — each story completable in one iteration
 - **Verifiable criteria** — acceptance criteria must be testable
 
-### Example Stories
+### Example Story
+
+`prd.json` entry (metadata only — no `acceptanceCriteria` field here):
 
 ```json
 {
   "id": "US-001",
   "title": "Set up database schema",
-  "acceptanceCriteria": [
-    "Migration file created",
-    "Tables created with correct columns",
-    "Indexes added for common queries",
-    "Types generated and passing"
-  ],
+  "promptPath": "stories/US-001.md",
   "status": "pending",
   "priority": 1,
   "questions": []
 }
 ```
 
-```json
-{
-  "id": "US-002",
-  "title": "Implement API endpoints",
-  "acceptanceCriteria": [
-    "GET endpoint returns data",
-    "POST endpoint creates records",
-    "Validation errors return 400",
-    "Tests written and passing"
-  ],
-  "status": "pending",
-  "priority": 2,
-  "questions": []
-}
+`stories/US-001.md` (source of truth for scope + AC):
+
+```markdown
+---
+id: US-001
+title: Set up database schema
+priority: 1
+dependencies: []
+---
+
+## Goal
+Land the baseline database schema the rest of the feature depends on.
+
+## Scope
+- New migration under `db/migrations/`
+- Kysely types regenerated
+
+## Out of scope
+- Seeding production data
+
+## Deliverables
+1. Migration file applied cleanly on a fresh DB
+2. Regenerated Kysely types committed
+
+## Acceptance Criteria
+- [ ] Migration file created and applies cleanly
+- [ ] Tables created with correct columns and constraints
+- [ ] Indexes added for common queries
+- [ ] Kysely types regenerated and typecheck passes
+- [ ] Lint passes
 ```
 
 ## After Creation
