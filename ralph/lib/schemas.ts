@@ -21,7 +21,6 @@ export const StorySchema = z.object({
 	answers: z.array(z.string()).optional(),
 	iterationCount: z.number().int().min(0).optional(),
 	startCommit: z.string().optional(),
-	verificationAttempts: z.number().int().min(0).optional(),
 });
 
 export const LastRunSchema = z.object({

@@ -48,11 +48,6 @@ export interface Story {
 	 * Used by the per-story verifier to compute the diff of work done on this story.
 	 */
 	startCommit?: string;
-	/**
-	 * How many times the per-story verifier has rejected this story. 0 or absent = never.
-	 * After the single retry budget is exhausted the engine blocks the story.
-	 */
-	verificationAttempts?: number;
 }
 
 /**

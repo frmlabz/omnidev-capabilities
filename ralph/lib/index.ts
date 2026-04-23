@@ -207,7 +207,7 @@ export { ReviewEngine } from "./orchestration/review-engine.js";
 export {
 	MAX_DIFF_CHARS as STORY_VERIFIER_MAX_DIFF_CHARS,
 	captureCurrentCommit,
-	failedAcsToQuestions,
+	generateVerifierFixPrompt,
 	generateVerifierPrompt,
 	getStoryDiff,
 	parseVerifierOutput,

@@ -560,37 +560,43 @@ export async function runStart(flags: Record<string, unknown>, prdName?: unknown
 		process.exit(1);
 	}
 
-	// Check for blocked stories before starting
+	// Check for blocked stories before starting.
+	// Blocked stories with no questions carry no actionable user prompt
+	// (common for stale blocks from the old verifier retry flow), so we
+	// silently auto-unblock them — otherwise the interactive y/n below would
+	// hang with nothing to answer.
 	const { hasBlockedStories: hasBlockedStoriesFn } = await import("./lib/index.js");
-	const blockedStories = await hasBlockedStoriesFn(projectName, repoRoot, prdName);
+	let blockedStories = await hasBlockedStoriesFn(projectName, repoRoot, prdName);
+
+	const autoUnblockable = blockedStories.filter((s) => s.questions.length === 0);
+	if (autoUnblockable.length > 0) {
+		for (const story of autoUnblockable) {
+			await unblockStory(projectName, repoRoot, prdName, story.id, []);
+			console.log(`✅ Auto-unblocked ${story.id} (no questions to answer)`);
+		}
+		blockedStories = await hasBlockedStoriesFn(projectName, repoRoot, prdName);
+	}
 
 	if (blockedStories.length > 0) {
 		console.log(
 			`\n🚫 Cannot start "${prdName}" - has ${blockedStories.length} blocked story(ies):\n`,
 		);
 
-		// Show all blocked stories
 		for (const story of blockedStories) {
 			console.log(`  ${story.id}: ${story.title}`);
-			if (story.questions.length > 0) {
-				console.log(`    Questions: ${story.questions.length}`);
-			}
+			console.log(`    Questions: ${story.questions.length}`);
 		}
 
 		console.log("\nYou must unblock these stories before proceeding.\n");
 
-		// Ask user if they want to answer questions now
 		const rl = readline.createInterface({ input, output });
 		try {
 			const answer = await rl.question("Would you like to answer the questions now? (y/n): ");
 
 			if (answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
 				rl.close();
-				// Prompt for answers for each blocked story
 				for (const story of blockedStories) {
-					if (story.questions.length > 0) {
-						await promptForAnswers(projectName, repoRoot, prdName, story);
-					}
+					await promptForAnswers(projectName, repoRoot, prdName, story);
 				}
 				console.log("All blocked stories have been addressed. Starting orchestration...\n");
 			} else {

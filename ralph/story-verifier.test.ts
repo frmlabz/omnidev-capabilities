@@ -7,7 +7,7 @@ import type { AgentResult, RunOptions } from "./lib/orchestration/agent-runner.j
 import {
 	MAX_DIFF_CHARS,
 	captureCurrentCommit,
-	failedAcsToQuestions,
+	generateVerifierFixPrompt,
 	getStoryDiff,
 	parseVerifierOutput,
 	verifyStory,
@@ -277,27 +277,46 @@ it("verifyStory: surfaces failedAcs when verifier says FAIL", async () => {
 	assert.deepEqual(outcome.failedAcs.map((f) => f.id).sort(), ["2", "3"]);
 });
 
-it("failedAcsToQuestions: resolves numeric ids into AC text", () => {
-	const story = makeStory();
+it("generateVerifierFixPrompt: embeds failed AC text, evidence, diff, and story id", () => {
+	const story = makeStory({ id: "US-042", title: "Add handler" });
 	const acs = ["Handler exists", "Test added", "Logs emitted"];
-	const qs = failedAcsToQuestions(story, acs, [
-		{ id: "2", status: "unmet", evidence: "no test file" },
-		{ id: "3", status: "partial", evidence: "only one log call" },
-	]);
-	assert.equal(qs.length, 2);
-	assert.ok(qs[0]?.includes("Test added"));
-	assert.ok(qs[0]?.includes("no test file"));
-	assert.ok(qs[1]?.includes("Logs emitted"));
-	assert.ok(qs[1]?.includes("only one log call"));
+	const prompt = generateVerifierFixPrompt(
+		story,
+		"/repo/stories/US-042.md",
+		acs,
+		[
+			{ id: "2", status: "unmet", evidence: "no test file" },
+			{ id: "3", status: "partial", evidence: "only one log call" },
+		],
+		"diff --git a/src/x.ts b/src/x.ts\n+hello",
+	);
+	assert.ok(prompt.includes("US-042"));
+	assert.ok(prompt.includes("Add handler"));
+	assert.ok(prompt.includes("/repo/stories/US-042.md"));
+	assert.ok(prompt.includes("Test added"));
+	assert.ok(prompt.includes("no test file"));
+	assert.ok(prompt.includes("Logs emitted"));
+	assert.ok(prompt.includes("only one log call"));
+	assert.ok(prompt.includes("+hello"));
+	// Must tell the fix agent to commit so next iteration has clean state.
+	assert.ok(prompt.includes("git commit"));
+	// Must forbid touching the story file / state.
+	assert.ok(/do not modify the story file/i.test(prompt));
 });
 
-it("failedAcsToQuestions: falls back to raw id when it is not a valid index", () => {
+it("generateVerifierFixPrompt: falls back to '(unknown AC …)' when id is not a valid index", () => {
 	const story = makeStory();
 	const acs = ["One", "Two"];
-	const qs = failedAcsToQuestions(story, acs, [
-		{ id: "bogus", status: "unmet", evidence: "??" },
-		{ id: "99", status: "unmet", evidence: "out of range" },
-	]);
-	assert.ok(qs[0]?.includes("bogus"));
-	assert.ok(qs[1]?.includes("99"));
+	const prompt = generateVerifierFixPrompt(
+		story,
+		"/stories/x.md",
+		acs,
+		[
+			{ id: "bogus", status: "unmet", evidence: "??" },
+			{ id: "99", status: "unmet", evidence: "out of range" },
+		],
+		"",
+	);
+	assert.ok(prompt.includes("(unknown AC bogus)"));
+	assert.ok(prompt.includes("(unknown AC 99)"));
 });

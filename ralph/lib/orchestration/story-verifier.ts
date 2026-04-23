@@ -288,21 +288,64 @@ export async function verifyStory(params: VerifyStoryParams): Promise<Verificati
 }
 
 /**
- * Render failed ACs as user-facing question strings that get appended to
- * a story's questions list when the verifier rejects it. The dev agent
- * picks them up on the retry iteration.
+ * Build the fix-agent prompt for a story that failed verification. The fix
+ * agent is given the specific failed ACs, the scoped diff, and instructions
+ * to fix only those items (no re-implementation, no story-file edits). It
+ * runs inline between the verifier and the next story — the story itself
+ * stays `completed`.
  */
-export function failedAcsToQuestions(
-	_story: Story,
+export function generateVerifierFixPrompt(
+	story: Story,
+	storyFilePath: string,
 	acceptanceCriteria: string[],
 	failedAcs: FailedAc[],
-): string[] {
-	return failedAcs.map((fa) => {
-		const idx = Number(fa.id);
-		const acText =
-			Number.isFinite(idx) && idx >= 1 && idx <= acceptanceCriteria.length
-				? acceptanceCriteria[idx - 1]
-				: fa.id;
-		return `Verification ${fa.status}: AC "${acText}" — ${fa.evidence}`;
-	});
+	diff: string,
+): string {
+	const failedBlock = failedAcs
+		.map((fa) => {
+			const idx = Number(fa.id);
+			const acText =
+				Number.isFinite(idx) && idx >= 1 && idx <= acceptanceCriteria.length
+					? acceptanceCriteria[idx - 1]
+					: `(unknown AC ${fa.id})`;
+			return `- AC ${fa.id} [${fa.status}]: ${acText}\n  Evidence: ${fa.evidence}`;
+		})
+		.join("\n");
+
+	return `<Role>
+Targeted fix agent. A prior agent completed story ${story.id} but the per-story verifier found that some acceptance criteria were not delivered. Fix ONLY those items — do not re-implement the story or refactor unrelated code.
+</Role>
+
+<Context>
+**Story:** ${story.id} — ${story.title}
+**Story file:** \`${storyFilePath}\`
+
+**Failed acceptance criteria (address each):**
+${failedBlock}
+
+**Diff of work done so far on this story:**
+\`\`\`diff
+${diff}
+\`\`\`
+</Context>
+
+<Workflow>
+1. Read the story file for full context on the listed ACs.
+2. Fix only the listed items. Prefer the smallest possible change.
+3. Run quality checks (typecheck, lint, tests). Fix any failures you introduce.
+4. Commit with:
+   \`\`\`bash
+   git add .
+   git commit -m "fix: [${story.id}] - address verification failures"
+   \`\`\`
+5. End your turn. Do not emit a completion signal.
+</Workflow>
+
+<Constraints>
+- Fix only the listed failed ACs. No new features, no refactors.
+- Do not modify the story file.
+- Do not modify prd.json or any Ralph state files.
+- If you cannot fix an item (e.g., missing dependency), explain why in the commit message and leave it for review.
+</Constraints>
+`;
 }

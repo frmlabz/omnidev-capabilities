@@ -29,7 +29,6 @@ interface LegacyStory {
 	acceptanceCriteria?: string[];
 	iterationCount?: number;
 	startCommit?: string;
-	verificationAttempts?: number;
 }
 
 interface LegacyPRD {

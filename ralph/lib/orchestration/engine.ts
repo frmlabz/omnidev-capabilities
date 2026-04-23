@@ -47,7 +47,8 @@ import { ReviewEngine } from "./review-engine.js";
 import {
 	captureCurrentCommit,
 	verifyStory,
-	failedAcsToQuestions,
+	generateVerifierFixPrompt,
+	getStoryDiff,
 	readStoryAcceptanceCriteria,
 } from "./story-verifier.js";
 
@@ -455,56 +456,30 @@ export class OrchestrationEngine {
 					});
 
 					if (!outcome.pass) {
-						const attempts = latestStory.verificationAttempts ?? 0;
 						const acs = readStoryAcceptanceCriteria(storyFilePath);
-						const newQuestions = failedAcsToQuestions(latestStory, acs, outcome.failedAcs);
 						const summary = outcome.failedAcs.map((fa) => `${fa.status} AC ${fa.id}`).join(", ");
-
-						if (attempts >= 1) {
-							log(
-								"warn",
-								`Story ${story.id} blocked: verification failed after retry (${summary})`,
-							);
-							await this.ctx.store.update(prdName, (p) => {
-								const s = p.stories.find((st) => st.id === story.id);
-								if (s) {
-									s.status = "blocked";
-									s.questions = [...(s.questions ?? []), ...newQuestions];
-								}
-								return p;
-							});
-							emit({ type: "story_update", prdName, storyId: story.id, status: "blocked" });
-							emit({
-								type: "complete",
-								result: "blocked",
-								message: `Story ${story.id} verification failed after retry`,
-							});
-
-							const finalPrd = (await this.ctx.store.get(prdName)).data!;
-							return ok({
-								prdName,
-								outcome: "blocked",
-								message: `Story ${story.id} verification failed after retry: ${summary}`,
-								storiesCompleted: finalPrd.stories.filter((s) => s.status === "completed").length,
-								storiesRemaining: finalPrd.stories.filter((s) => s.status !== "completed").length,
-							});
-						}
-
 						log(
 							"warn",
-							`Story ${story.id} failed verification (${summary}), reverting to in_progress for retry`,
+							`Story ${story.id} failed verification (${summary}), spawning inline fix agent`,
 						);
-						await this.ctx.store.update(prdName, (p) => {
-							const s = p.stories.find((st) => st.id === story.id);
-							if (s) {
-								s.status = "in_progress";
-								s.verificationAttempts = attempts + 1;
-								s.questions = [...(s.questions ?? []), ...newQuestions];
-							}
-							return p;
-						});
-						emit({ type: "story_update", prdName, storyId: story.id, status: "in_progress" });
-						continue;
+						const fixPrompt = generateVerifierFixPrompt(
+							latestStory,
+							storyFilePath,
+							acs,
+							outcome.failedAcs,
+							getStoryDiff(this.ctx.repoRoot, latestStory.startCommit),
+						);
+						try {
+							await this.ctx.agentExecutor.run(fixPrompt, agentConfig, {
+								stream: true,
+								signal,
+								onOutput: (data) => emit({ type: "agent_output", data }),
+							});
+						} catch (error) {
+							log("warn", `Fix agent failed for story ${story.id}: ${error}`);
+						}
+						// Story stays `completed`. The PRD-level review/QA phase is the
+						// deeper safety net; a failing fix agent will surface there.
 					}
 				}
 
